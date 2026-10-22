@@ -6,7 +6,7 @@ function loadEsbuild() {
   if(esbuild.version!=='0.28.2')throw Error('Expected esbuild 0.28.2; run npm install');
   return esbuild;
 }
-function build(root, externals=['obsidian']) {
+function build(root, externals=['obsidian','@codemirror/state','@codemirror/view']) {
   return loadEsbuild().buildSync({entryPoints:[path.join(root,'src','plugin.js')],absWorkingDir:root,outfile:path.join(root,'plugin','main.js'),bundle:true,platform:'node',format:'cjs',external:externals,target:'es2022',charset:'utf8',legalComments:'eof',sourcemap:false,metafile:true,write:false});
 }
 if(require.main===module) {

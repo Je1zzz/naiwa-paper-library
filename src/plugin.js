@@ -1,4 +1,4 @@
-const { Plugin, ItemView, PluginSettingTab, Setting, Notice, TFile, MarkdownRenderer, loadPdfJs, parseYaml, stringifyYaml, requestUrl } = require('obsidian');
+const { Plugin, ItemView, PluginSettingTab, Setting, Notice, TFile, MarkdownRenderer, loadPdfJs, parseYaml, stringifyYaml, requestUrl, editorInfoField, editorLivePreviewField } = require('obsidian');
 const { createReader } = require('./reader');
 const { createHome } = require('./home');
 const Core = require('./core');
@@ -63,6 +63,13 @@ module.exports = class PaperLibrary extends Plugin {
     this.settings.models ||= {};
     this.settings.reasoning ||= 'default';
     await this.migrateNotePages();
+    this.registerEditorExtension(require('./note-markers').createNoteMarkers({
+      StateField:require('@codemirror/state').StateField,
+      Decoration:require('@codemirror/view').Decoration,
+      EditorView:require('@codemirror/view').EditorView,
+      editorInfoField,editorLivePreviewField,
+      isNote:path=>!!path&&Object.values(this.settings.notePages||{}).includes(path)
+    }));
     this.registerView(VIEW, leaf => new PaperView(leaf, this));
     this.registerView(HOME, leaf => new HomeView(leaf, this));
     this.addRibbonIcon('library', '打开文献首页', () => this.activateHome());

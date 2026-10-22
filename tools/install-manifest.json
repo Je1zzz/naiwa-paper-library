@@ -1,0 +1,27 @@
+{
+    "schema":  1,
+    "pluginId":  "paper-library",
+    "version":  "1.0.0",
+    "files":  [
+                  {
+                      "path":  "main.js",
+                      "sha256":  "bcd0e89707635cf65c7d0262e05cfad5b0e63f1aba08ff6168a21eade3dd5c86"
+                  },
+                  {
+                      "path":  "manifest.json",
+                      "sha256":  "8f620b329a7fdebf38c8a794edddc3ef506563b93b0ce460665c0f6402e525c8"
+                  },
+                  {
+                      "path":  "styles.css",
+                      "sha256":  "c6594d29f346d447b9596f6812f915109982f92a9b7a4568966a38c74b57373b"
+                  },
+                  {
+                      "path":  "assets/reading-icon.svg",
+                      "sha256":  "e2b6487037e4f881bf87a83583efceb0a8b7b75360ae0d0501386b82531a7ad0"
+                  },
+                  {
+                      "path":  "assets/reading-frog.png",
+                      "sha256":  "0cd76127127009e420b08fe7ac93141c62dcf9756cf3f7ec81b3581c5e1ccf85"
+                  }
+              ]
+}

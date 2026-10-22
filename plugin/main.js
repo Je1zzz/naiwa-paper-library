@@ -3187,8 +3187,40 @@ var require_clipboard = __commonJS({
   }
 });
 
+// src/note-markers.js
+var require_note_markers = __commonJS({
+  "src/note-markers.js"(exports2, module2) {
+    function markerRanges(doc) {
+      const ranges = [];
+      let fence = null;
+      for (let n = 1; n <= doc.lines; n++) {
+        const line = doc.line(n), text = line.text.trim();
+        const match = text.match(/^(`{3,}|~{3,})/);
+        if (match) {
+          if (!fence) fence = match[1];
+          else if (match[1][0] === fence[0] && match[1].length >= fence.length) fence = null;
+          continue;
+        }
+        if (fence) continue;
+        if (/^<!-- paper-library:(?:annotations:(?:start|end)|body|end|annotation \{.*\}) -->$/.test(text)) ranges.push({ from: line.from, to: line.to + (n < doc.lines ? 1 : 0) });
+      }
+      return ranges;
+    }
+    function createNoteMarkers({ StateField, Decoration, EditorView, editorInfoField: editorInfoField2, editorLivePreviewField: editorLivePreviewField2, isNote }) {
+      const compute = (state) => {
+        const info = state.field(editorInfoField2, false);
+        if (!state.field(editorLivePreviewField2, false) || !isNote(info?.file?.path)) return Decoration.none;
+        return Decoration.set(markerRanges(state.doc).map(({ from, to }) => Decoration.replace({ block: true }).range(from, to)));
+      };
+      const field = StateField.define({ create: compute, update: (_value, tr) => compute(tr.state), provide: (f) => EditorView.decorations.from(f) });
+      return [field, EditorView.atomicRanges.of((view) => view.state.field(field))];
+    }
+    module2.exports = { markerRanges, createNoteMarkers };
+  }
+});
+
 // src/plugin.js
-var { Plugin, ItemView, PluginSettingTab, Setting, Notice, TFile, MarkdownRenderer, loadPdfJs, parseYaml, stringifyYaml, requestUrl } = require("obsidian");
+var { Plugin, ItemView, PluginSettingTab, Setting, Notice, TFile, MarkdownRenderer, loadPdfJs, parseYaml, stringifyYaml, requestUrl, editorInfoField, editorLivePreviewField } = require("obsidian");
 var { createReader } = require_reader();
 var { createHome } = require_home();
 var Core = require_core();
@@ -3292,6 +3324,14 @@ module.exports = class PaperLibrary extends Plugin {
     this.settings.models ||= {};
     this.settings.reasoning ||= "default";
     await this.migrateNotePages();
+    this.registerEditorExtension(require_note_markers().createNoteMarkers({
+      StateField: require("@codemirror/state").StateField,
+      Decoration: require("@codemirror/view").Decoration,
+      EditorView: require("@codemirror/view").EditorView,
+      editorInfoField,
+      editorLivePreviewField,
+      isNote: (path) => !!path && Object.values(this.settings.notePages || {}).includes(path)
+    }));
     this.registerView(VIEW, (leaf) => new PaperView(leaf, this));
     this.registerView(HOME, (leaf) => new HomeView(leaf, this));
     this.addRibbonIcon("library", "打开文献首页", () => this.activateHome());
