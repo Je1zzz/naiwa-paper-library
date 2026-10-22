@@ -4,7 +4,7 @@ const vm = require('node:vm');
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
-const pluginDir = path.resolve(__dirname, '..');
+const pluginDir = path.resolve(__dirname, '../src');
 const Core = require(path.join(pluginDir, 'core.js'));
 function fixture() {
   let captured, saved, response = { status: 200, json: { choices: [{ message: { content: '模拟回答' } }] } };

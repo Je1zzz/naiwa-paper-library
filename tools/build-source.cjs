@@ -7,9 +7,9 @@ function loadEsbuild() {
   return esbuild;
 }
 function build(root, externals=['obsidian']) {
-  return loadEsbuild().buildSync({entryPoints:[path.join(root,'plugin.js')],absWorkingDir:root,outfile:path.join(root,'main.js'),bundle:true,platform:'node',format:'cjs',external:externals,target:'es2022',charset:'utf8',legalComments:'eof',sourcemap:false,metafile:true,write:false});
+  return loadEsbuild().buildSync({entryPoints:[path.join(root,'src','plugin.js')],absWorkingDir:root,outfile:path.join(root,'plugin','main.js'),bundle:true,platform:'node',format:'cjs',external:externals,target:'es2022',charset:'utf8',legalComments:'eof',sourcemap:false,metafile:true,write:false});
 }
 if(require.main===module) {
-  const result=build(__dirname);for(const output of result.outputFiles)fs.writeFileSync(output.path,output.contents);
+  const result=build(path.resolve(__dirname,'..'));for(const output of result.outputFiles)fs.writeFileSync(output.path,output.contents);
 }
 module.exports={build,loadEsbuild};

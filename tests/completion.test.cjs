@@ -1,5 +1,5 @@
 const {test}=require('node:test'),assert=require('node:assert/strict');
-const {complete}=require('../completion');
+const {complete}=require('../src/completion');
 const response=(content,finish_reason='stop')=>({status:200,json:{choices:[{message:{content},finish_reason}]}});
 const settings={provider:'openrouter',model:'test',maxOutputTokens:16384};
 test('length truncation continues with accumulated answer and preserves output budget',async()=>{

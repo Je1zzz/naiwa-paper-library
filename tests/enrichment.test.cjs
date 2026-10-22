@@ -1,9 +1,9 @@
 'use strict';
 const {test}=require('node:test');
 const assert=require('node:assert/strict');
-const E=require('../enrichment');
-const V=require('../venue-metrics');
-const M=require('../metadata');
+const E=require('../src/enrichment');
+const V=require('../src/venue-metrics');
+const M=require('../src/metadata');
 const title='A visual omics foundation model for spatial transcriptomics';
 const source=title+'\nAlice Smith 1, Bob Jones 2\n1 University Alpha\n2 Institute Beta\nCorrespondence to Bob Jones. Additional article text to demonstrate a readable PDF.';
 const author={title,firstAuthor:'Alice Smith',affiliation:'University Alpha',affiliationZh:'阿尔法大学',correspondingAuthor:'Bob Jones',correspondingAffiliation:'Institute Beta',correspondingAffiliationZh:'贝塔研究所',evidence:{affiliation:'1 University Alpha',correspondingAuthor:'Correspondence to Bob Jones.',correspondingAffiliation:{authorQuote:'Alice Smith 1, Bob Jones 2',affiliationQuote:'2 Institute Beta',marker:'2'}}};

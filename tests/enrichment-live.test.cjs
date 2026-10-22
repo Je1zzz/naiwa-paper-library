@@ -1,6 +1,6 @@
 'use strict';
 const {test}=require('node:test'),assert=require('node:assert/strict');
-const E=require('../enrichment'),M=require('../metadata');
+const E=require('../src/enrichment'),M=require('../src/metadata');
 const enabled=process.env.ENRICHMENT_LIVE==='1';
 const get=async url=>{const r=await fetch(url,{signal:AbortSignal.timeout(30000)});if(!r.ok)throw new Error('Public HTTP '+r.status);return r.json();};
 const read=async url=>{const r=await fetch('https://r.jina.ai/'+url,{signal:AbortSignal.timeout(30000)});if(!r.ok)throw new Error('Public reader HTTP '+r.status);return r.text();};

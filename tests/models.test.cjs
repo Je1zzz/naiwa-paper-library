@@ -1,6 +1,6 @@
 const {test}=require('node:test');
 const assert=require('node:assert/strict');
-const Models=require('../models');
+const Models=require('../src/models');
 test('model endpoint follows configured API and rejects insecure hosts',()=>{
  assert.equal(Models.endpoint('https://openrouter.ai/api/v1/chat/completions'),'https://openrouter.ai/api/v1/models');
  assert.equal(Models.endpoint('https://api.deepseek.com/chat/completions'),'https://api.deepseek.com/models');

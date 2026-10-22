@@ -7,9 +7,9 @@ var __commonJS = (cb, mod) => function __require() {
   }
 };
 
-// reader.js
+// src/reader.js
 var require_reader = __commonJS({
-  "reader.js"(exports2, module2) {
+  "src/reader.js"(exports2, module2) {
     (function(root, factory) {
       if (typeof module2 === "object" && module2.exports) module2.exports = factory();
       else root.PaperReader = factory();
@@ -1694,9 +1694,9 @@ ${line}`);
   }
 });
 
-// web-import.js
+// src/web-import.js
 var require_web_import = __commonJS({
-  "web-import.js"(exports2, module2) {
+  "src/web-import.js"(exports2, module2) {
     function sourceUrl(input) {
       let value = String(input || "").trim();
       if (/^10\.\d{4,9}\//.test(value)) value = "https://doi.org/" + value;
@@ -1828,9 +1828,9 @@ var require_web_import = __commonJS({
   }
 });
 
-// appearance.js
+// src/appearance.js
 var require_appearance = __commonJS({
-  "appearance.js"(exports2, module2) {
+  "src/appearance.js"(exports2, module2) {
     var defaults = { enabled: false, color: "#e9edf0", backgroundFile: "", transparency: 25, blur: 16 };
     function normalize(value = {}) {
       return { enabled: Boolean(value.enabled), color: /^#[\da-f]{6}$/i.test(value.color || "") ? value.color : defaults.color, backgroundFile: String(value.backgroundFile || ""), transparency: Math.max(0, Math.min(95, Number(value.transparency ?? 25) || 0)), blur: Math.max(0, Math.min(40, Number(value.blur ?? 16) || 0)) };
@@ -1949,9 +1949,9 @@ var require_appearance = __commonJS({
   }
 });
 
-// home.js
+// src/home.js
 var require_home = __commonJS({
-  "home.js"(exports2, module2) {
+  "src/home.js"(exports2, module2) {
     var WebImport2 = require_web_import();
     var Appearance2 = require_appearance();
     async function createHome2(root, bridge) {
@@ -2355,9 +2355,9 @@ var require_home = __commonJS({
   }
 });
 
-// core.js
+// src/core.js
 var require_core = __commonJS({
-  "core.js"(exports2, module2) {
+  "src/core.js"(exports2, module2) {
     (function(root, factory) {
       if (typeof module2 === "object" && module2.exports) module2.exports = factory();
       else root.PaperCore = factory();
@@ -2422,9 +2422,9 @@ ${quote}
   }
 });
 
-// note-format.js
+// src/note-format.js
 var require_note_format = __commonJS({
-  "note-format.js"(exports2, module2) {
+  "src/note-format.js"(exports2, module2) {
     function record(note) {
       const { body, quote, path, _source, _block, _originalBody, ...data } = note;
       return data;
@@ -2442,9 +2442,9 @@ var require_note_format = __commonJS({
   }
 });
 
-// notebook.js
+// src/notebook.js
 var require_notebook = __commonJS({
-  "notebook.js"(exports2, module2) {
+  "src/notebook.js"(exports2, module2) {
     var Core2 = require_core();
     var Format = require_note_format();
     var START = "<!-- paper-library:annotation ";
@@ -2587,9 +2587,9 @@ ${body || ""}
   }
 });
 
-// codex.js
+// src/codex.js
 var require_codex = __commonJS({
-  "codex.js"(exports2, module2) {
+  "src/codex.js"(exports2, module2) {
     var { spawn } = require("node:child_process");
     var { readFileSync: readFileSync2, mkdirSync } = require("node:fs");
     var { homedir: homedir2, tmpdir } = require("node:os");
@@ -2709,9 +2709,9 @@ var require_codex = __commonJS({
   }
 });
 
-// metadata.js
+// src/metadata.js
 var require_metadata = __commonJS({
-  "metadata.js"(exports2, module2) {
+  "src/metadata.js"(exports2, module2) {
     function normalized(s) {
       return String(s || "").toLowerCase().replace(/<[^>]*>/g, " ").replace(/[^\p{L}\p{N}]+/gu, " ").trim();
     }
@@ -2754,9 +2754,9 @@ var require_metadata = __commonJS({
   }
 });
 
-// enrichment.js
+// src/enrichment.js
 var require_enrichment = __commonJS({
-  "enrichment.js"(exports2, module2) {
+  "src/enrichment.js"(exports2, module2) {
     "use strict";
     function parseJson(answer) {
       if (answer && typeof answer === "object" && !Array.isArray(answer)) return answer;
@@ -2959,9 +2959,9 @@ ${p.text || ""}`).join("\n\n");
   }
 });
 
-// venue-metrics.js
+// src/venue-metrics.js
 var require_venue_metrics = __commonJS({
-  "venue-metrics.js"(exports2, module2) {
+  "src/venue-metrics.js"(exports2, module2) {
     var normalize = (s) => String(s || "").toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
     var evidenceText = (s) => String(s || "").normalize("NFKC").replace(/\*\*|__/g, "").replace(/\s+/g, " ").trim().toLowerCase();
     var publishers = ["nature.com", "springer.com", "springernature.com", "wiley.com", "sciencedirect.com", "elsevier.com", "sagepub.com", "tandfonline.com", "oup.com", "ieee.org", "acm.org", "clarivate.com", "biomedcentral.com", "plos.org", "frontiersin.org", "mdpi.com", "bmj.com", "jamanetwork.com", "nejm.org", "cell.com", "science.org", "pnas.org", "annualreviews.org"];
@@ -3108,9 +3108,9 @@ var require_venue_metrics = __commonJS({
   }
 });
 
-// models.js
+// src/models.js
 var require_models = __commonJS({
-  "models.js"(exports2, module2) {
+  "src/models.js"(exports2, module2) {
     function endpoint(chatUrl) {
       const url = new URL(chatUrl);
       if (url.protocol !== "https:" && !(url.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname))) throw new Error("模型地址必须使用 HTTPS 或本机 HTTP");
@@ -3134,9 +3134,9 @@ var require_models = __commonJS({
   }
 });
 
-// completion.js
+// src/completion.js
 var require_completion = __commonJS({
-  "completion.js"(exports2, module2) {
+  "src/completion.js"(exports2, module2) {
     var Core2 = require_core();
     async function complete(settings, messages, post) {
       const history = [...messages];
@@ -3169,9 +3169,9 @@ var require_completion = __commonJS({
   }
 });
 
-// clipboard.js
+// src/clipboard.js
 var require_clipboard = __commonJS({
-  "clipboard.js"(exports2, module2) {
+  "src/clipboard.js"(exports2, module2) {
     var { execFile } = require("node:child_process");
     var fs = require("node:fs");
     var path = require("node:path");
@@ -3187,7 +3187,7 @@ var require_clipboard = __commonJS({
   }
 });
 
-// plugin.js
+// src/plugin.js
 var { Plugin, ItemView, PluginSettingTab, Setting, Notice, TFile, MarkdownRenderer, loadPdfJs, parseYaml, stringifyYaml, requestUrl } = require("obsidian");
 var { createReader } = require_reader();
 var { createHome } = require_home();

@@ -1,4 +1,4 @@
-const {test}=require('node:test'),assert=require('node:assert/strict'),N=require('../notebook'),F=require('../note-format');
+const {test}=require('node:test'),assert=require('node:assert/strict'),N=require('../src/notebook'),F=require('../src/note-format');
 test('human Markdown contains quote and comment, omits coordinates, translation, page links and generated headings',()=>{
  const note={id:'test',kind:'highlight',paper:'a.pdf',page:7,color:'red',rects:[{x:.1,y:.2,w:.3,h:.1}],translation:'automatic translation',body:'My own comment',quote:'Original text\nSecond line'};
  const source=N.group(N.blockFor(note),{test:F.record(note)});

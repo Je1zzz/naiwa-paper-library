@@ -1,1 +1,1 @@
-![奶蛙](assets/reading-frog.png)
+![奶蛙](plugin/assets/reading-frog.png)

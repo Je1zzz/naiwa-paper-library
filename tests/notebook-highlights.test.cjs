@@ -1,4 +1,4 @@
-const {test}=require('node:test'),assert=require('node:assert/strict'),N=require('../notebook');
+const {test}=require('node:test'),assert=require('node:assert/strict'),N=require('../src/notebook');
 function legacy(note){return '<!-- paper-library:annotation '+JSON.stringify(note).replace(/\[/g,'\\u005b').replace(/\]/g,'\\u005d')+' -->\n### Highlight\n\n<!-- paper-library:body -->\ncomment\n<!-- paper-library:end -->';}
 const base={id:'one',paper:'paper.pdf',kind:'highlight',page:1,rects:[{x:.1,y:.2,w:.3,h:.01}],quote:'A paper [with brackets]',color:'red',updated:'2026-10-22T01:00:00Z'};
 test('legacy escaped rect arrays recover while bracket characters inside strings remain intact',()=>{
