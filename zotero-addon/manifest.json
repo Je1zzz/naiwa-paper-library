@@ -1,0 +1,13 @@
+{
+  "manifest_version": 2,
+  "name": "Paper Library · Obsidian Import Companion",
+  "version": "0.1.0",
+  "description": "Send selected Zotero bibliography items or PDF attachments to Paper Library in Obsidian.",
+  "applications": {
+    "zotero": {
+      "id": "paper-library-obsidian@paper-library.local",
+      "strict_min_version": "7.0",
+      "strict_max_version": "10.*"
+    }
+  }
+}

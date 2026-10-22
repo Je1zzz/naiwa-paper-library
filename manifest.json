@@ -1,0 +1,9 @@
+{
+  "id": "paper-library",
+  "name": "Paper Library · 文献阅读",
+  "version": "1.0.0",
+  "minAppVersion": "1.11.4",
+  "description": "PDF 阅读、选中批注、页内便笺、Markdown 笔记与 DeepSeek / OpenRouter 对话。",
+  "author": "Local workspace",
+  "isDesktopOnly": true
+}

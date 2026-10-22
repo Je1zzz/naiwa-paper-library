@@ -1,0 +1,13 @@
+node_modules/
+.obsidian/
+.paper-library-dev/
+data.json
+backgrounds/
+*.pdf
+*.log
+.env
+.env.*
+auth.json
+credentials.json
+Thumbs.db
+.DS_Store
