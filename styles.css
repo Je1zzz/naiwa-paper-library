@@ -445,6 +445,9 @@
 .pl-side-resizer { position:absolute; left:-4px; top:0; bottom:0; width:8px; cursor:col-resize; z-index:25; touch-action:none; }
 .pl-side-resizer:hover,.pl-side-resizer:focus-visible,.pl-resizing-side .pl-side-resizer { background:color-mix(in srgb,var(--pl-accent) 35%,transparent); }
 .pl-resizing-side { cursor:col-resize; user-select:none; }
-.pl-side-restore { position:absolute; right:12px; top:10px; z-index:26; box-shadow:0 2px 8px #0001; }
+.pl-side-rail { display:flex; align-items:center; justify-content:center; min-width:0; min-height:0; border-left:1px solid var(--pl-line); background:var(--pl-paper); }
+.pl-side-restore { position:static; flex:none; width:26px; height:40px; padding:0; border:0; font-size:22px; line-height:1; }
 .pl-tabs .pl-side-hide { margin-left:auto; align-self:center; padding:3px 7px; width:25px; height:27px; border:0; font-size:20px; }
 .pl-side .pl-tabs { gap:12px; padding-right:12px; }
+.paper-library-note .metadata-container,
+.paper-library-note .frontmatter-container { display:none!important; }

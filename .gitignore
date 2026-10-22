@@ -3,6 +3,7 @@ node_modules/
 .paper-library-dev/
 data.json
 backgrounds/
+note-format-backups/
 *.pdf
 *.log
 .env

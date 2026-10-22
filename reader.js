@@ -123,8 +123,9 @@
     const sidePreferences=bridge.getReaderPreferences?.()||{};
     let sideWidth=Number(sidePreferences.sideWidth)||322,sideHidden=Boolean(sidePreferences.sideHidden),sideDrag=null;
     const sideHandle=el('div','pl-side-resizer',null,side);sideHandle.tabIndex=0;sideHandle.setAttribute('role','separator');sideHandle.setAttribute('aria-label','调整批注与对话侧栏宽度');sideHandle.setAttribute('aria-orientation','vertical');
-    const showSideButton=button('‹ 批注 / AI',main,()=>setSideHidden(false),'pl-side-restore');
-    function applySide(){const max=Math.max(200,Math.min(960,root.clientWidth-240)),width=Math.max(200,Math.min(sideWidth,max));shell.style.gridTemplateColumns=sideHidden?'minmax(0,1fr) 0px':`minmax(0,1fr) ${width}px`;side.classList.toggle('pl-hidden',sideHidden);showSideButton.classList.toggle('pl-hidden',!sideHidden);sideHandle.setAttribute('aria-valuenow',String(Math.round(width)));sideHandle.setAttribute('aria-valuemin','200');sideHandle.setAttribute('aria-valuemax',String(max));}
+    const sideRail=el('div','pl-side-rail',null,shell);
+    const showSideButton=button('‹',sideRail,()=>setSideHidden(false),'pl-side-restore');showSideButton.setAttribute('aria-label','展开批注与对话');showSideButton.title='展开批注与对话';
+    function applySide(){const max=Math.max(200,Math.min(960,root.clientWidth-240)),width=Math.max(200,Math.min(sideWidth,max));shell.style.gridTemplateColumns=sideHidden?'minmax(0,1fr) 30px':`minmax(0,1fr) ${width}px`;side.classList.toggle('pl-hidden',sideHidden);sideRail.classList.toggle('pl-hidden',!sideHidden);sideHandle.setAttribute('aria-valuenow',String(Math.round(width)));sideHandle.setAttribute('aria-valuemin','200');sideHandle.setAttribute('aria-valuemax',String(max));}
     async function setSideHidden(value){sideHidden=value;applySide();await bridge.saveReaderPreferences?.({sideHidden});}
     function sideMove(event){if(!sideDrag)return;sideWidth=Math.max(200,Math.min(960,sideDrag.width+sideDrag.x-event.clientX,Math.max(200,root.clientWidth-240)));applySide();}
     function endSideDrag(){if(!sideDrag)return;sideDrag=null;root.classList.remove('pl-resizing-side');doc.removeEventListener('pointermove',sideMove);doc.removeEventListener('pointerup',endSideDrag);doc.removeEventListener('pointercancel',endSideDrag);bridge.saveReaderPreferences?.({sideWidth}).catch(error);}

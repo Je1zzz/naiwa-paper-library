@@ -2,7 +2,8 @@
   const fs = require('node:fs'), path = require('node:path');
   const vault = app.vault.adapter.getBasePath();
   const dev = vault + '/.paper-library-dev/';
-  const runtime = path.resolve(dev, '../.obsidian/plugins/paper-library');
+  // A caller may point this at a checkout without reloading the live plugin.
+  const runtime = globalThis.paperLibraryNativeSource || path.resolve(dev, '../.obsidian/plugins/paper-library');
   const output = path.join(dev, 'side-clipboard-native-results.json');
   const plugin = app.plugins.plugins['paper-library'];
   const report = { startedAt: new Date().toISOString(), checks: [], notices: [],
@@ -36,8 +37,9 @@
     report.paperPath = source.path;
     report.source = { runtime, readerModifiedAt: fs.statSync(path.join(runtime, 'reader.js')).mtime.toISOString(),
       stylesModifiedAt: fs.statSync(path.join(runtime, 'styles.css')).mtime.toISOString() };
-    style = document.createElement('style'); style.textContent = fs.readFileSync(path.join(runtime, 'styles.css'), 'utf8'); document.head.append(style);
-    root = document.createElement('div'); root.style.cssText = 'position:fixed;left:20px;top:50px;bottom:20px;width:min(1100px,calc(100vw - 40px));z-index:9999;background:white'; document.body.append(root);
+    root = document.createElement('div'); root.id = 'paper-library-native-side-test'; root.style.cssText = 'position:fixed;left:20px;top:50px;bottom:20px;width:min(1100px,calc(100vw - 40px));z-index:9999;background:white'; document.body.append(root);
+    style = document.createElement('style'); style.textContent = '@scope (#' + root.id + ') {' + fs.readFileSync(path.join(runtime, 'styles.css'), 'utf8') + '}'; document.head.append(style);
+    if (style.sheet.cssRules[0]?.constructor.name !== 'CSSScopeRule') throw Error('Scoped CSS unavailable; do not change live reader styles');
     const preferences = { sideWidth: 322, sideHidden: false, headerCollapsed: false }, writes = [], copies = [];
     const settings = { provider: 'openrouter', model: 'test/text', hasKey: false, models: { openrouter: 'test/text' }, catalogs: { openrouter: ['test/text'] }, enabledModels: {}, efforts: {}, configuredProviders: [] };
     const bridge = {
@@ -48,7 +50,7 @@
       saveReaderPreferences: async value => { writes.push(structuredClone(value)); Object.assign(preferences, value); },
       copyPdf: async paperPath => copies.push(paperPath), notice: text => report.notices.push(text)
     };
-    const visible = element => !!element && getComputedStyle(element).display !== 'none' && element.getClientRects().length > 0;
+    const visible = element => !!element && getComputedStyle(element).display !== 'none' && element.getClientRects().length > 0 && !element.closest('.pl-hidden');
     const button = text => [...root.querySelectorAll('button')].find(node => node.textContent.trim() === text);
     const clickTab = async text => { const tab = button(text); if (!tab) throw Error('Missing tab: ' + text); tab.click(); await frame(); };
     const hide = async () => {
@@ -77,10 +79,21 @@
     check(Number(handle.getAttribute('aria-valuenow')) === Math.round(savedWidth), 'Resizer aria-valuenow tracks width');
 
     await clickTab('批注与笔记');
+    const main = root.querySelector('.pl-main'), mainBeforeHide = main.getBoundingClientRect().width;
     await hide();
     check(!visible(side) && visible(root.querySelector('.pl-side-restore')) && preferences.sideHidden, 'Accessible hide button hides annotation sidebar and exposes restore');
+    const rail = root.querySelector('.pl-side-rail'), railRect = rail.getBoundingClientRect(), restoreRect = root.querySelector('.pl-side-restore').getBoundingClientRect();
+    const headerRect = root.querySelector('.pl-reader-header').getBoundingClientRect(), mainRect = main.getBoundingClientRect();
+    const overlaps = (a, b) => a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+    check(railRect.width >= 28 && railRect.width <= 32 && rail.parentElement === root.querySelector('.pl-shell'), 'Hidden sidebar uses an independent 28–32px grid rail', { width: railRect.width });
+    check(Math.abs((restoreRect.top + restoreRect.bottom) / 2 - (railRect.top + railRect.bottom) / 2) < 2 && root.querySelector('.pl-side-restore').getAttribute('aria-label') === '展开批注与对话', 'Restore icon is vertically centered and has the expand accessible name');
+    check(!overlaps(restoreRect, headerRect) && !overlaps(railRect, mainRect) && railRect.left >= mainRect.right - 1, 'Restore rail does not overlap header or main PDF region');
+    const paperNoteRect = button('文章笔记').getBoundingClientRect();
+    check(!overlaps(restoreRect, paperNoteRect), 'Restore icon does not cover the article-notes button');
+    check(Math.abs(mainRect.width - mainBeforeHide - (savedWidth - railRect.width)) < 2, 'Hiding releases the old panel width except for the narrow rail', { before: mainBeforeHide, hidden: mainRect.width, rail: railRect.width });
     await restore();
     check(visible(side) && !visible(root.querySelector('.pl-side-restore')) && Math.abs(side.getBoundingClientRect().width - savedWidth) < 2, 'Restore shows annotations at persisted width');
+    check(Math.abs(main.getBoundingClientRect().width - mainBeforeHide) < 2 && !visible(rail), 'Restoring removes the rail and returns the previous main layout');
     await clickTab('AI 对话'); await hide();
     check(!visible(side) && !visible(root.querySelector('.pl-chat-input')) && visible(root.querySelector('.pl-side-restore')), 'Hide also removes AI conversation sidebar and composer from layout');
     reader.destroy(); reader = undefined;
@@ -90,6 +103,9 @@
     check(visible(side) && Math.abs(side.getBoundingClientRect().width - savedWidth) < 2, 'Remounted reader restore uses persisted width');
     await reader.openPaper(source.path);
     await wait(() => root.querySelector('canvas'), 'real PDF canvas'); await clickTab('AI 对话');
+    await hide();
+    check(!overlaps(root.querySelector('.pl-side-rail').getBoundingClientRect(), root.querySelector('.pl-reading-area').getBoundingClientRect()), 'With a real PDF loaded, the rail stays outside the reading area');
+    await restore();
     const copyButton = button('复制 PDF');
     check(!!copyButton && ![...root.querySelectorAll('button')].some(node => /复制.*全文|全文.*复制/.test(node.textContent)), 'Copy PDF button exists and old full-text copy button is absent');
     copyButton.click(); await wait(() => copies.length === 1, 'mock copyPdf call');

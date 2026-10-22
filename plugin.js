@@ -12,6 +12,7 @@ const Models = require('./models');
 const Enrichment = require('./enrichment');
 const Completion = require('./completion');
 const FileClipboard = require('./clipboard');
+const NoteFormat=require('./note-format');
 const { readFileSync } = require('node:fs');
 const { join } = require('node:path');
 const { homedir } = require('node:os');
@@ -61,6 +62,7 @@ module.exports = class PaperLibrary extends Plugin {
     this.authorJobs=new Map();this.authorQueue=Promise.resolve();this.venueJobs=new Map();this.metadataJobs = new Map();this.metadataQueue=Promise.resolve();
     this.settings.models ||= {};
     this.settings.reasoning ||= 'default';
+    await this.migrateNotePages();
     this.registerView(VIEW, leaf => new PaperView(leaf, this));
     this.registerView(HOME, leaf => new HomeView(leaf, this));
     this.addRibbonIcon('library', '打开文献首页', () => this.activateHome());
@@ -103,6 +105,29 @@ module.exports = class PaperLibrary extends Plugin {
       this.ensureHomePage().catch(console.error);this.detectConnections().catch(console.error);
       if (!this.app.workspace.getLeavesOfType(HOME).length) this.activateHome();
     });
+  }
+  async migrateNotePages(){
+    this.settings.annotationRecords||={};this.settings.cleanNotePages||={};
+    for(const [paper,path]of Object.entries(this.settings.notePages||{})){
+      if(this.settings.cleanNotePages[path]===1)continue;
+      const file=this.app.vault.getAbstractFileByPath(path);if(!file||file.extension!=='md')continue;
+      const original=await this.app.vault.read(file),directory=this.manifest.dir+'/note-format-backups';
+      if(!await this.app.vault.adapter.exists(directory))await this.app.vault.adapter.mkdir(directory);
+      const backup=directory+'/'+crypto.randomUUID()+'.md';await this.app.vault.adapter.write(backup,original);
+      for(const note of Notebook.blocks(original,path,{records:this.settings.annotationRecords}))this.settings.annotationRecords[note.id]=NoteFormat.record(note);
+      this.settings.noteFormatBackups||={};this.settings.noteFormatBackups[path]=backup;
+      await this.saveData(this.settings);
+      await this.app.fileManager.processFrontMatter(file,fm=>{
+        const keys=NoteFormat.ownedKeys(this.settings.metadata?.[paper]);
+        if(!this.settings.paperLabels?.[paper]&&fm.labels){this.settings.paperLabels||={};this.settings.paperLabels[paper]=fm.labels;}
+        for(const [key,map]of [['rating-options','paperRatingValues'],['reading-status-options','paperStatusValues'],['custom-properties','paperProperties']])if(fm[key]!==undefined&&!this.settings[map]?.[paper]){this.settings[map]||={};this.settings[map][paper]=fm[key];}
+        if(fm['zotero-key']){this.settings.zoteroLinks||={};this.settings.zoteroLinks[paper]||={key:fm['zotero-key'],link:fm['zotero-uri'],citationKey:fm['citation-key']};}
+        for(const key of keys){if(key==='type'&&fm.type!=='paper-reading')continue;delete fm[key];}
+        const classes=Array.isArray(fm.cssclasses)?fm.cssclasses:typeof fm.cssclasses==='string'?fm.cssclasses.split(/\s+/):[];fm.cssclasses=[...new Set([...classes,'paper-library-note'])];
+      });
+      await this.app.vault.process(file,source=>Notebook.group(NoteFormat.cleanProse(source,paper),this.settings.annotationRecords));
+      this.settings.cleanNotePages[path]=1;await this.saveData(this.settings);
+    }
   }
   async activateHome(){
     if(this.homeActivation)return this.homeActivation;
@@ -158,7 +183,7 @@ module.exports = class PaperLibrary extends Plugin {
   async handlePaperRename(path, oldPath, rewrite=false) {
     this.settings.paperAliases||={};delete this.settings.paperAliases[path];this.settings.paperAliases[oldPath]=path;
     const notePath=this.settings.notePages?.[oldPath]||this.settings.notePages?.[path];
-    if(notePath){this.settings.notePages[path]=notePath;delete this.settings.notePages[oldPath];const file=this.app.vault.getAbstractFileByPath(notePath);if(file&&rewrite){await this.app.vault.process(file,source=>Notebook.renamePaper(source,oldPath,path));await this.app.fileManager.processFrontMatter(file,fm=>fm.paper=path);}}
+    if(notePath){this.settings.notePages[path]=notePath;delete this.settings.notePages[oldPath];const file=this.app.vault.getAbstractFileByPath(notePath);if(file&&rewrite){await this.app.vault.process(file,source=>Notebook.renamePaper(source,oldPath,path,this.settings.annotationRecords));}}
     for(const name of ['metadata','reading','paperLabels','paperRatings','paperProperties','paperRatingValues','paperStatusValues','firstReads'])if(Object.hasOwn(this.settings[name]||{},oldPath)){this.settings[name][path]=this.settings[name][oldPath];delete this.settings[name][oldPath];}
     for(const [key,value]of Object.entries(this.settings.webSources||{}))if(value===oldPath)this.settings.webSources[key]=path;
     for(const [key,value]of Object.entries(this.settings.zoteroPapers||{}))if(value===oldPath)this.settings.zoteroPapers[key]=path;
@@ -176,7 +201,7 @@ module.exports = class PaperLibrary extends Plugin {
     const counts=new Map(),seen=new Set(),frontmatters=new Map();
     for(const file of this.app.vault.getMarkdownFiles().filter(f=>f.path.startsWith(NOTES+'/'))){let source;try{source=await this.app.vault.read(file);}catch{continue;}
       try{const match=source.match(/^---\r?\n([\s\S]*?)\r?\n---/),fm=match&&parseYaml(match[1]);if(fm?.type==='paper-reading'&&typeof fm.paper==='string')frontmatters.set(this.resolvePaper(fm.paper),fm);}catch{}
-      for(const note of Notebook.blocks(source,file.path)){if(seen.has(note.id)||this.settings.hiddenNotes?.includes(note.id))continue;seen.add(note.id);const paper=this.resolvePaper(note.paper);counts.set(paper,(counts.get(paper)||0)+1);}
+      for(const note of Notebook.blocks(source,file.path,{records:this.settings.annotationRecords})){if(seen.has(note.id)||this.settings.hiddenNotes?.includes(note.id))continue;seen.add(note.id);const paper=this.resolvePaper(note.paper);counts.set(paper,(counts.get(paper)||0)+1);}
     }
     const papers=this.app.vault.getFiles().filter(f=>f.extension.toLowerCase()==='pdf').map(file=>{
       const metadata=this.settings.metadata?.[file.path]||{},fm=frontmatters.get(file.path)||{};
@@ -249,7 +274,7 @@ module.exports = class PaperLibrary extends Plugin {
     const task=(async()=>{const bridge=this.bridge({}),settings=bridge.getSettings(),model=this.settings.models.codex||'gpt-6.1-sol';
       const tags=await VenueMetrics.lookup(venue,{research:settings.provider==='codex'&&this.settings.codexReady?prompt=>Codex.research({...settings,model,reasoning:'low'},prompt):undefined,chat:settings.hasKey?messages=>bridge.chat(settings,messages):undefined,get:async url=>{const r=await requestUrl({url,throw:false});if(r.status!==200)throw Error('公开书目检索失败（'+r.status+'）');return r.json;},read:url=>this.readMetricSource(url),search:query=>Enrichment.publicSearch(query,async url=>{const r=await requestUrl({url,throw:false});if(r.status!==200)throw Error('公开检索失败（'+r.status+'）');return r.text;})});
       const result={tags,checkedAt:new Date().toISOString(),status:tags.length?'verified':'unavailable'};this.settings.venueMetrics||={};this.settings.venueMetrics[venue]=result;await this.saveData(this.settings);
-      for(const [path,m]of Object.entries(this.settings.metadata||{}))if(m.venue===venue){const notePath=this.settings.notePages?.[path],file=notePath&&this.app.vault.getAbstractFileByPath(notePath);if(file)await this.app.fileManager.processFrontMatter(file,fm=>fm['venue-metrics']=tags);}
+
       for(const leaf of this.app.workspace.getLeavesOfType(HOME))leaf.view.home?.refresh().catch(console.error);return result;})();
     this.venueJobs.set(venue,task);try{return await task;}catch(e){this.settings.venueMetrics||={};this.settings.venueMetrics[venue]={...(cache||{}),checkedAt:new Date().toISOString(),status:'error',error:e.message};await this.saveData(this.settings);throw e;}finally{this.venueJobs.delete(venue);}
   }
@@ -257,7 +282,7 @@ module.exports = class PaperLibrary extends Plugin {
   async saveCustomValue(paper,id,value){
     if(!(this.settings.customProperties||[]).some(p=>p.id===id))throw new Error('属性不存在');
     this.settings.paperProperties||={};this.settings.paperProperties[paper]||={};this.settings.paperProperties[paper][id]=value;await this.saveData(this.settings);
-    const note=await Notebook.pageFor(this,paper);await this.app.fileManager.processFrontMatter(note,fm=>{fm['custom-properties']={...fm['custom-properties'],[id]:value};});
+
   }
   async labelColor(label,color){
     if(!/^#[0-9a-f]{6}$/i.test(color))throw new Error('请选择有效的颜色');
@@ -272,7 +297,7 @@ module.exports = class PaperLibrary extends Plugin {
     this.settings.metadata||={};this.settings.metadata[paper]={...this.settings.metadata[paper],...fields};
     if(details.labels!==undefined){this.settings.paperLabels||={};this.settings.paperLabels[paper]=[...new Set(details.labels.map(s=>String(s).trim().replace(/^#/,'')).filter(Boolean))];}
     await this.saveData(this.settings);
-    if(Object.keys(fields).length||details.labels!==undefined){const file=await Notebook.pageFor(this,paper);await this.app.fileManager.processFrontMatter(file,fm=>{Object.assign(fm,fields);if(details.labels!==undefined)fm.labels=this.settings.paperLabels[paper];});}
+
   }
   async activate(path) {
     if(path)path=this.resolvePaper(path);
@@ -302,7 +327,7 @@ module.exports = class PaperLibrary extends Plugin {
       let source;
       try { source = await this.app.vault.read(file); }
       catch (e) { if (!await this.app.vault.adapter.exists(file.path)) continue; throw e; }
-      consolidated.push(...Notebook.blocks(source, file.path).filter(n => this.resolvePaper(n.paper) === paper).map(n=>({...n,paper})));
+      consolidated.push(...Notebook.blocks(source, file.path,{records:this.settings.annotationRecords}).filter(n => this.resolvePaper(n.paper) === paper).map(n=>({...n,paper})));
       const match = source.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/);
       if (!match) continue;
       try {
@@ -346,8 +371,7 @@ module.exports = class PaperLibrary extends Plugin {
     const uri = item.links?.alternate?.href || '';
     const group = uri.match(/groups\/(\d+)/)?.[1];
     const link = `zotero://select/${group ? 'groups/' + group : 'library'}/items/${item.key}`;
-    await this.app.fileManager.processFrontMatter(file, fm => { fm['zotero-key'] = item.key; fm['zotero-uri'] = link; fm['citation-key'] = item.data.citationKey || item.data.extra?.match(/Citation Key:\s*(.+)/i)?.[1] || ''; });
-    await this.app.vault.process(file, source => source.includes(`](${link})`) ? source : Notebook.group(source + `\n[在 Zotero 中打开](${link})\n`));
+    this.settings.zoteroLinks||={};this.settings.zoteroLinks[paper]={key:item.key,link,citationKey:item.data.citationKey||item.data.extra?.match(/Citation Key:\s*(.+)/i)?.[1]||''};await this.saveData(this.settings);
     return { path: file.path, link, backlink: `obsidian://open?vault=${encodeURIComponent(this.app.vault.getName())}&file=${encodeURIComponent(file.path)}` };
   }
   async openPaperNote(paper) {
@@ -427,14 +451,13 @@ module.exports = class PaperLibrary extends Plugin {
       renameLabel:async(oldName,name,color)=>{name=String(name).trim();if(!name)return;const data=await this.libraryData();await this.labelColor(name,color);if(oldName&&oldName!==name){for(const paper of data.papers)if(paper.labels.includes(oldName))await this.savePaperDetails(paper.path,{labels:[...new Set(paper.labels.map(t=>t===oldName?name:t))]});delete this.settings.labelColors[oldName];await this.saveData(this.settings);}},
       saveStatusOptions:async options=>{if(!Array.isArray(options)||options.some(o=>!o.id||!o.name||!/^#[0-9a-f]{6}$/i.test(o.color)))throw new Error('选项格式无效');this.settings.statusOptions=options;for(const [paper,values]of Object.entries(this.settings.paperStatusValues||{})){const next=values.filter(v=>options.some(o=>o.id===v));if(next.length!==values.length)await this.bridge({}).savePropertySelections(paper,'status',next);}for(const record of Object.values(this.settings.reading||{}))if(!options.some(o=>o.id===record.status))record.status=options[0]?.id||'';await this.saveData(this.settings);},
       saveRatingOptions:async options=>{this.settings.ratingOptions=options;await this.saveData(this.settings);},
-      savePropertySelections:async(paper,kind,values)=>{const map=kind==='rating'?'paperRatingValues':'paperStatusValues',key=kind==='rating'?'rating-options':'reading-status-options';this.settings[map]||={};this.settings[map][paper]=[...new Set(values)];if(kind==='status'){this.settings.reading||={};this.settings.reading[paper]={...this.settings.reading[paper],status:values[0]||''};}await this.saveData(this.settings);const note=await Notebook.pageFor(this,paper);await this.app.fileManager.processFrontMatter(note,fm=>fm[key]=this.settings[map][paper]);},
+      savePropertySelections:async(paper,kind,values)=>{const map=kind==='rating'?'paperRatingValues':'paperStatusValues',key=kind==='rating'?'rating-options':'reading-status-options';this.settings[map]||={};this.settings[map][paper]=[...new Set(values)];if(kind==='status'){this.settings.reading||={};this.settings.reading[paper]={...this.settings.reading[paper],status:values[0]||''};}await this.saveData(this.settings);},
       saveCustomProperty:async property=>{if(!property.name?.trim()||!['multi','select','text'].includes(property.type))throw new Error('请输入属性名称并选择类型');this.settings.customProperties||=[];const index=this.settings.customProperties.findIndex(p=>p.id===property.id);if(index<0)this.settings.customProperties.push(property);else this.settings.customProperties[index]=property;await this.saveData(this.settings);},
       saveCustomValue:(paper,id,value)=>this.saveCustomValue(paper,id,value),
       deleteLabel:async label=>{const data=await this.libraryData();for(const paper of data.papers)if(paper.labels.includes(label))await this.savePaperDetails(paper.path,{labels:paper.labels.filter(t=>t!==label)});delete this.settings.labelColors?.[label];await this.saveData(this.settings);},
       saveMetadata: async (paper, metadata) => {
         this.settings.metadata ||= {}; this.settings.metadata[paper] = {...this.settings.metadata[paper],...metadata}; await this.saveData(this.settings);
-        const file = await Notebook.pageFor(this, paper);
-        await this.app.fileManager.processFrontMatter(file, fm => { for(const[k,v]of Object.entries(metadata)){if(v===undefined||v===null||v==='')continue;const key=({'firstAuthor':'first-author','correspondingAuthor':'corresponding-author','metadataSource':'metadata-source','metadataUrl':'metadata-url'})[k]||k;fm[key]=v;} });
+
         for(const leaf of this.app.workspace.getLeavesOfType(HOME))leaf.view.home?.refresh().catch(console.error);
       },
       connectCodex: () => this.connectCodex(),
@@ -487,9 +510,9 @@ module.exports = class PaperLibrary extends Plugin {
           await this.app.vault.adapter.trashLocal(recoveryPath);
         }
         if (note._block && file) await this.app.vault.process(file, source => {
-          const current = Notebook.blocks(source, file.path).find(n => n.id === note.id);
+          const current = Notebook.blocks(source, file.path,{records:this.settings.annotationRecords}).find(n => n.id === note.id);
           if (!current || current._block !== note._block) throw new Error('笔记已改变，请刷新后再删除。');
-          let cleaned=source;for(const version of Notebook.blocks(source,file.path,{allVersions:true}).filter(n=>n.id===note.id))cleaned=cleaned.replace(version._block,'');return cleaned;
+          let cleaned=source;for(const version of Notebook.blocks(source,file.path,{allVersions:true,records:this.settings.annotationRecords}).filter(n=>n.id===note.id))cleaned=cleaned.replace(version._block,'');return cleaned;
         });
         else if (file) await this.app.fileManager.trashFile(file);
         // A migrated legacy annotation is retained on disk, but hidden after deletion.

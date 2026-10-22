@@ -234,12 +234,15 @@ var require_reader = __commonJS({
         sideHandle.setAttribute("role", "separator");
         sideHandle.setAttribute("aria-label", "调整批注与对话侧栏宽度");
         sideHandle.setAttribute("aria-orientation", "vertical");
-        const showSideButton = button("‹ 批注 / AI", main, () => setSideHidden(false), "pl-side-restore");
+        const sideRail = el("div", "pl-side-rail", null, shell);
+        const showSideButton = button("‹", sideRail, () => setSideHidden(false), "pl-side-restore");
+        showSideButton.setAttribute("aria-label", "展开批注与对话");
+        showSideButton.title = "展开批注与对话";
         function applySide() {
           const max = Math.max(200, Math.min(960, root.clientWidth - 240)), width = Math.max(200, Math.min(sideWidth, max));
-          shell.style.gridTemplateColumns = sideHidden ? "minmax(0,1fr) 0px" : `minmax(0,1fr) ${width}px`;
+          shell.style.gridTemplateColumns = sideHidden ? "minmax(0,1fr) 30px" : `minmax(0,1fr) ${width}px`;
           side.classList.toggle("pl-hidden", sideHidden);
-          showSideButton.classList.toggle("pl-hidden", !sideHidden);
+          sideRail.classList.toggle("pl-hidden", !sideHidden);
           sideHandle.setAttribute("aria-valuenow", String(Math.round(width)));
           sideHandle.setAttribute("aria-valuemin", "200");
           sideHandle.setAttribute("aria-valuemax", String(max));
@@ -2419,10 +2422,31 @@ ${quote}
   }
 });
 
+// note-format.js
+var require_note_format = __commonJS({
+  "note-format.js"(exports2, module2) {
+    function record(note) {
+      const { body, quote, path, _source, _block, _originalBody, ...data } = note;
+      return data;
+    }
+    function cleanProse(source, paper) {
+      const normalized = source.replace(/\r\n/g, "\n"), boundary = normalized.indexOf("<!-- paper-library:annotations:start -->"), head = boundary < 0 ? normalized : normalized.slice(0, boundary), tail = boundary < 0 ? "" : normalized.slice(boundary);
+      const title = paper.split("/").pop().replace(/\.pdf$/i, ""), lines = head.split("\n");
+      return lines.filter((line) => line !== "# " + title && line !== "在这里自由记录想法。" && !/^\[打开文献\]\(obsidian:\/\/paper-library\?/.test(line) && !/^\[在 Zotero 中打开\]\(zotero:\/\/select\//.test(line)).join("\n") + tail;
+    }
+    function ownedKeys(metadata = {}) {
+      const aliases = { firstAuthor: "first-author", correspondingAuthor: "corresponding-author", metadataSource: "metadata-source", metadataUrl: "metadata-url" };
+      return /* @__PURE__ */ new Set(["type", "paper", "title", "authors", "doi", "year", "venue", "labels", "rating-options", "reading-status-options", "custom-properties", "venue-metrics", "zotero-key", "zotero-uri", "citation-key", "sourceUrl", "pdfUrl", "publisherUrl", "lookupAt", "lookupStatus", "authorLookupAt", "authorLookupStatus", "authorLookupError", "authorSource", "authorSources", "authorEvidence", "authorWarnings", "authorVerification", "affiliation", "affiliationZh", "correspondingAffiliation", "correspondingAffiliationZh", "first-author", "corresponding-author", "metadata-source", "metadata-url", ...Object.keys(metadata).map((key) => aliases[key] || key)]);
+    }
+    module2.exports = { record, cleanProse, ownedKeys };
+  }
+});
+
 // notebook.js
 var require_notebook = __commonJS({
   "notebook.js"(exports2, module2) {
     var Core2 = require_core();
+    var Format = require_note_format();
     var START = "<!-- paper-library:annotation ";
     var GROUP_START = "<!-- paper-library:annotations:start -->";
     var GROUP_END = "<!-- paper-library:annotations:end -->";
@@ -2448,15 +2472,21 @@ var require_notebook = __commonJS({
       }
       return JSON.parse(fixed);
     }
-    function blocks(source, path, { allVersions = false } = {}) {
+    function blocks(source, path, { allVersions = false, records = {} } = {}) {
       const out = [];
       const re = /<!-- paper-library:annotation (.*?) -->\r?\n([\s\S]*?)\r?\n<!-- paper-library:end -->/g;
       for (const m of source.matchAll(re)) {
         try {
-          const meta = annotationMeta(m[1]);
+          const stored = annotationMeta(m[1]), meta = { ...records[stored.id], ...stored };
           const body = m[2].split(/\r?\n<!-- paper-library:body -->\r?\n/)[1] ?? "";
           const translated = m[2].match(/<!-- paper-library:translation -->\r?\n([\s\S]*?)\r?\n<!-- paper-library:translation:end -->/);
-          out.push({ ...meta, ...translated ? { translation: translated[1] } : {}, body, path, _block: m[0] });
+          const quote = [...m[2].split(/\r?\n<!-- paper-library:body -->/)[0].matchAll(/(?:^|\r?\n)>[ \t]?(.*)/g)].map((match) => match[1]).join("\n");
+          let title = m[2].match(/^### (.*)$/m)?.[1];
+          if (stored.paper && title?.endsWith(" · P" + meta.page)) {
+            title = title.slice(0, -(" · P" + meta.page).length);
+            if (!meta.title && ["便笺", "划线批注", "翻译与批注", "AI 摘记", "阅读笔记"].includes(title)) title = void 0;
+          }
+          out.push({ ...meta, ...title !== void 0 ? { title } : {}, quote: quote || meta.quote || "", ...translated ? { translation: translated[1] } : {}, body, path, _block: m[0] });
         } catch {
         }
       }
@@ -2482,28 +2512,17 @@ var require_notebook = __commonJS({
         }
         await plugin.ensureFolder("阅读笔记");
         if (!plugin.app.vault.getAbstractFileByPath(path)) {
-          const url = `obsidian://paper-library?vault=${encodeURIComponent(plugin.app.vault.getName())}&paper=${encodeURIComponent(paper)}`;
-          await plugin.app.vault.create(path, group(`---
-type: paper-reading
-paper: ${JSON.stringify(paper)}
----
-
-# ${paper.split("/").pop().replace(/\.pdf$/i, "")}
-
-[打开文献](${url}) · [[${paper}]]
-
-## 阅读札记
-
-在这里自由记录想法。
-`));
+          await plugin.app.vault.create(path, group("---\ncssclasses:\n  - paper-library-note\n---\n\n## 阅读札记\n", plugin.settings.annotationRecords || {}));
+          plugin.settings.cleanNotePages ||= {};
+          plugin.settings.cleanNotePages[path] = 1;
         }
         plugin.settings.notePages[paper] = path;
         await plugin.saveData(plugin.settings);
       }
       return plugin.app.vault.getAbstractFileByPath(path);
     }
-    function group(source) {
-      const versions = blocks(source, "", { allVersions: true }), notes = blocks(source, "");
+    function group(source, records) {
+      const versions = blocks(source, "", { allVersions: true, records }), notes = blocks(source, "", { records });
       let prose = source;
       for (const note of versions) prose = prose.replace(note._block, "");
       const region = prose.indexOf(GROUP_START), end = prose.indexOf(GROUP_END, region);
@@ -2511,24 +2530,15 @@ paper: ${JSON.stringify(paper)}
         const manual = prose.slice(region + GROUP_START.length, end).replace(/^## (?:批注|便笺)\s*$/gm, "").trim();
         prose = prose.slice(0, region) + (manual ? "\n" + manual + "\n" : "") + prose.slice(end + GROUP_END.length);
       } else prose = prose.replace(/^## 批注与摘记[ \t]*\r?$/m, "");
-      return prose.trimEnd() + "\n\n" + GROUP_START + "\n## 批注\n\n" + notes.filter((n) => n.kind !== "sticky").map((n) => n._block).join("\n\n") + "\n\n## 便笺\n\n" + notes.filter((n) => n.kind === "sticky").map((n) => n._block).join("\n\n") + "\n" + GROUP_END + "\n";
+      return prose.trimEnd() + "\n\n" + GROUP_START + "\n## 批注\n\n" + notes.filter((n) => n.kind !== "sticky").map((n) => blockFor(n, records !== void 0)).join("\n\n") + "\n\n## 便笺\n\n" + notes.filter((n) => n.kind === "sticky").map((n) => blockFor(n, records !== void 0)).join("\n\n") + "\n" + GROUP_END + "\n";
     }
-    function blockFor(note) {
+    function blockFor(note, compact = false) {
       const { body, path, _source, _block, _originalBody, ...meta } = note;
-      const title = (note.title || { sticky: "便笺", highlight: "划线批注", translation: "翻译与批注", ai: "AI 摘记" }[note.kind] || "阅读笔记").replace(/[\r\n]/g, " ");
+      const title = (note.title || "").replace(/[\r\n]/g, " ");
       const quote = note.quote ? "\n> " + note.quote.replace(/\n/g, "\n> ") + "\n" : "";
-      const translated = note.translation ? `
-**译文**
-
-<!-- paper-library:translation -->
-${note.translation}
-<!-- paper-library:translation:end -->
-` : "";
-      const encoded = JSON.stringify(meta).replace(/</g, "\\u003c").replace(/>/g, "\\u003e");
+      const encoded = JSON.stringify(compact ? { id: note.id } : meta).replace(/</g, "\\u003c").replace(/>/g, "\\u003e");
       return `${START}${encoded} -->
-### ${title} · P${note.page}
-
-[[${note.paper}#page=${note.page}|返回第 ${note.page} 页]]${quote}${translated}
+${title ? "### " + title + "\n" : ""}${quote}
 <!-- paper-library:body -->
 ${body || ""}
 <!-- paper-library:end -->`;
@@ -2538,28 +2548,42 @@ ${body || ""}
       const now = (/* @__PURE__ */ new Date()).toISOString();
       const { path, _source, _block, _originalBody, ...fields } = note;
       const data = { ...fields, id: note.id || crypto.randomUUID(), created: note.created || now, updated: now };
-      const block = blockFor(data);
-      await plugin.app.vault.process(file, (source) => {
-        const previous = blocks(source, file.path).find((n) => n.id === data.id);
-        if (previous) {
-          if (note._block && previous._block !== note._block || note.updated && previous.updated !== note.updated) throw new Error("笔记已在其他窗口修改，请刷新后重试。");
-          let cleaned = source;
-          for (const version of blocks(source, file.path, { allVersions: true }).filter((n) => n.id === data.id)) cleaned = cleaned.replace(version._block, "");
-          return group(cleaned + "\n\n" + block + "\n");
-        }
-        return group(source + "\n\n" + block + "\n");
-      });
+      const records = plugin.settings.annotationRecords ||= {};
+      if (plugin.app.vault.read) for (const existing of blocks(await plugin.app.vault.read(file), file.path, { records })) records[existing.id] = Format.record(existing);
+      const previousRecords = { ...records }, oldRecord = records[data.id];
+      const { body: ignoredBody, quote: ignoredQuote, ...record } = data;
+      records[data.id] = record;
+      await plugin.saveData?.(plugin.settings);
+      const block = blockFor(data, true);
+      try {
+        await plugin.app.vault.process(file, (source) => {
+          const previous = blocks(source, file.path, { records: previousRecords }).find((n) => n.id === data.id);
+          if (previous) {
+            if (note._block && previous._block !== note._block || note.updated && previous.updated !== note.updated) throw new Error("笔记已在其他窗口修改，请刷新后重试。");
+            let cleaned = source;
+            for (const version of blocks(source, file.path, { allVersions: true, records: previousRecords }).filter((n) => n.id === data.id)) cleaned = cleaned.replace(version._block, "");
+            return group(cleaned + "\n\n" + block + "\n", records);
+          }
+          return group(source + "\n\n" + block + "\n", records);
+        });
+      } catch (error) {
+        if (oldRecord) records[data.id] = oldRecord;
+        else delete records[data.id];
+        await plugin.saveData?.(plugin.settings);
+        throw error;
+      }
       return { ...data, path: file.path, _block: block };
     }
-    function renamePaper(source, oldPath, newPath) {
-      for (const note of blocks(source, "")) {
+    function renamePaper(source, oldPath, newPath, records) {
+      for (const note of blocks(source, "", { records })) {
         if (note.paper !== oldPath) continue;
         const updated = { ...note, paper: newPath, source: `[[${newPath}#page=${note.page}]]` };
-        source = source.replace(note._block, () => blockFor(updated));
+        if (records?.[note.id]) records[note.id] = { ...records[note.id], paper: newPath };
+        source = source.replace(note._block, () => blockFor(updated, records !== void 0));
       }
-      return group(source);
+      return group(source, records);
     }
-    module2.exports = { blocks, pageFor, save, group, renamePaper };
+    module2.exports = { blocks, pageFor, save, group, renamePaper, blockFor };
   }
 });
 
@@ -3178,6 +3202,7 @@ var Models = require_models();
 var Enrichment = require_enrichment();
 var Completion = require_completion();
 var FileClipboard = require_clipboard();
+var NoteFormat = require_note_format();
 var { readFileSync } = require("node:fs");
 var { join } = require("node:path");
 var { homedir } = require("node:os");
@@ -3266,6 +3291,7 @@ module.exports = class PaperLibrary extends Plugin {
     this.metadataQueue = Promise.resolve();
     this.settings.models ||= {};
     this.settings.reasoning ||= "default";
+    await this.migrateNotePages();
     this.registerView(VIEW, (leaf) => new PaperView(leaf, this));
     this.registerView(HOME, (leaf) => new HomeView(leaf, this));
     this.addRibbonIcon("library", "打开文献首页", () => this.activateHome());
@@ -3328,6 +3354,47 @@ module.exports = class PaperLibrary extends Plugin {
       this.detectConnections().catch(console.error);
       if (!this.app.workspace.getLeavesOfType(HOME).length) this.activateHome();
     });
+  }
+  async migrateNotePages() {
+    this.settings.annotationRecords ||= {};
+    this.settings.cleanNotePages ||= {};
+    for (const [paper, path] of Object.entries(this.settings.notePages || {})) {
+      if (this.settings.cleanNotePages[path] === 1) continue;
+      const file = this.app.vault.getAbstractFileByPath(path);
+      if (!file || file.extension !== "md") continue;
+      const original = await this.app.vault.read(file), directory = this.manifest.dir + "/note-format-backups";
+      if (!await this.app.vault.adapter.exists(directory)) await this.app.vault.adapter.mkdir(directory);
+      const backup = directory + "/" + crypto.randomUUID() + ".md";
+      await this.app.vault.adapter.write(backup, original);
+      for (const note of Notebook.blocks(original, path, { records: this.settings.annotationRecords })) this.settings.annotationRecords[note.id] = NoteFormat.record(note);
+      this.settings.noteFormatBackups ||= {};
+      this.settings.noteFormatBackups[path] = backup;
+      await this.saveData(this.settings);
+      await this.app.fileManager.processFrontMatter(file, (fm) => {
+        const keys = NoteFormat.ownedKeys(this.settings.metadata?.[paper]);
+        if (!this.settings.paperLabels?.[paper] && fm.labels) {
+          this.settings.paperLabels ||= {};
+          this.settings.paperLabels[paper] = fm.labels;
+        }
+        for (const [key, map] of [["rating-options", "paperRatingValues"], ["reading-status-options", "paperStatusValues"], ["custom-properties", "paperProperties"]]) if (fm[key] !== void 0 && !this.settings[map]?.[paper]) {
+          this.settings[map] ||= {};
+          this.settings[map][paper] = fm[key];
+        }
+        if (fm["zotero-key"]) {
+          this.settings.zoteroLinks ||= {};
+          this.settings.zoteroLinks[paper] ||= { key: fm["zotero-key"], link: fm["zotero-uri"], citationKey: fm["citation-key"] };
+        }
+        for (const key of keys) {
+          if (key === "type" && fm.type !== "paper-reading") continue;
+          delete fm[key];
+        }
+        const classes = Array.isArray(fm.cssclasses) ? fm.cssclasses : typeof fm.cssclasses === "string" ? fm.cssclasses.split(/\s+/) : [];
+        fm.cssclasses = [.../* @__PURE__ */ new Set([...classes, "paper-library-note"])];
+      });
+      await this.app.vault.process(file, (source) => Notebook.group(NoteFormat.cleanProse(source, paper), this.settings.annotationRecords));
+      this.settings.cleanNotePages[path] = 1;
+      await this.saveData(this.settings);
+    }
   }
   async activateHome() {
     if (this.homeActivation) return this.homeActivation;
@@ -3581,8 +3648,7 @@ module.exports = class PaperLibrary extends Plugin {
       delete this.settings.notePages[oldPath];
       const file = this.app.vault.getAbstractFileByPath(notePath);
       if (file && rewrite) {
-        await this.app.vault.process(file, (source) => Notebook.renamePaper(source, oldPath, path));
-        await this.app.fileManager.processFrontMatter(file, (fm) => fm.paper = path);
+        await this.app.vault.process(file, (source) => Notebook.renamePaper(source, oldPath, path, this.settings.annotationRecords));
       }
     }
     for (const name of ["metadata", "reading", "paperLabels", "paperRatings", "paperProperties", "paperRatingValues", "paperStatusValues", "firstReads"]) if (Object.hasOwn(this.settings[name] || {}, oldPath)) {
@@ -3627,7 +3693,7 @@ module.exports = class PaperLibrary extends Plugin {
         if (fm?.type === "paper-reading" && typeof fm.paper === "string") frontmatters.set(this.resolvePaper(fm.paper), fm);
       } catch {
       }
-      for (const note of Notebook.blocks(source, file.path)) {
+      for (const note of Notebook.blocks(source, file.path, { records: this.settings.annotationRecords })) {
         if (seen.has(note.id) || this.settings.hiddenNotes?.includes(note.id)) continue;
         seen.add(note.id);
         const paper = this.resolvePaper(note.paper);
@@ -3793,10 +3859,6 @@ module.exports = class PaperLibrary extends Plugin {
       this.settings.venueMetrics ||= {};
       this.settings.venueMetrics[venue] = result;
       await this.saveData(this.settings);
-      for (const [path, m] of Object.entries(this.settings.metadata || {})) if (m.venue === venue) {
-        const notePath = this.settings.notePages?.[path], file = notePath && this.app.vault.getAbstractFileByPath(notePath);
-        if (file) await this.app.fileManager.processFrontMatter(file, (fm) => fm["venue-metrics"] = tags);
-      }
       for (const leaf of this.app.workspace.getLeavesOfType(HOME)) leaf.view.home?.refresh().catch(console.error);
       return result;
     })();
@@ -3821,10 +3883,6 @@ module.exports = class PaperLibrary extends Plugin {
     this.settings.paperProperties[paper] ||= {};
     this.settings.paperProperties[paper][id] = value;
     await this.saveData(this.settings);
-    const note = await Notebook.pageFor(this, paper);
-    await this.app.fileManager.processFrontMatter(note, (fm) => {
-      fm["custom-properties"] = { ...fm["custom-properties"], [id]: value };
-    });
   }
   async labelColor(label, color) {
     if (!/^#[0-9a-f]{6}$/i.test(color)) throw new Error("请选择有效的颜色");
@@ -3852,13 +3910,6 @@ module.exports = class PaperLibrary extends Plugin {
       this.settings.paperLabels[paper] = [...new Set(details.labels.map((s) => String(s).trim().replace(/^#/, "")).filter(Boolean))];
     }
     await this.saveData(this.settings);
-    if (Object.keys(fields).length || details.labels !== void 0) {
-      const file = await Notebook.pageFor(this, paper);
-      await this.app.fileManager.processFrontMatter(file, (fm) => {
-        Object.assign(fm, fields);
-        if (details.labels !== void 0) fm.labels = this.settings.paperLabels[paper];
-      });
-    }
   }
   async activate(path) {
     if (path) path = this.resolvePaper(path);
@@ -3892,7 +3943,7 @@ module.exports = class PaperLibrary extends Plugin {
         if (!await this.app.vault.adapter.exists(file.path)) continue;
         throw e;
       }
-      consolidated.push(...Notebook.blocks(source, file.path).filter((n) => this.resolvePaper(n.paper) === paper).map((n) => ({ ...n, paper })));
+      consolidated.push(...Notebook.blocks(source, file.path, { records: this.settings.annotationRecords }).filter((n) => this.resolvePaper(n.paper) === paper).map((n) => ({ ...n, paper })));
       const match = source.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/);
       if (!match) continue;
       try {
@@ -3947,14 +3998,9 @@ module.exports = class PaperLibrary extends Plugin {
     const uri = item.links?.alternate?.href || "";
     const group = uri.match(/groups\/(\d+)/)?.[1];
     const link = `zotero://select/${group ? "groups/" + group : "library"}/items/${item.key}`;
-    await this.app.fileManager.processFrontMatter(file, (fm) => {
-      fm["zotero-key"] = item.key;
-      fm["zotero-uri"] = link;
-      fm["citation-key"] = item.data.citationKey || item.data.extra?.match(/Citation Key:\s*(.+)/i)?.[1] || "";
-    });
-    await this.app.vault.process(file, (source) => source.includes(`](${link})`) ? source : Notebook.group(source + `
-[在 Zotero 中打开](${link})
-`));
+    this.settings.zoteroLinks ||= {};
+    this.settings.zoteroLinks[paper] = { key: item.key, link, citationKey: item.data.citationKey || item.data.extra?.match(/Citation Key:\s*(.+)/i)?.[1] || "" };
+    await this.saveData(this.settings);
     return { path: file.path, link, backlink: `obsidian://open?vault=${encodeURIComponent(this.app.vault.getName())}&file=${encodeURIComponent(file.path)}` };
   }
   async openPaperNote(paper) {
@@ -4125,8 +4171,6 @@ module.exports = class PaperLibrary extends Plugin {
           this.settings.reading[paper] = { ...this.settings.reading[paper], status: values[0] || "" };
         }
         await this.saveData(this.settings);
-        const note = await Notebook.pageFor(this, paper);
-        await this.app.fileManager.processFrontMatter(note, (fm) => fm[key] = this.settings[map][paper]);
       },
       saveCustomProperty: async (property) => {
         if (!property.name?.trim() || !["multi", "select", "text"].includes(property.type)) throw new Error("请输入属性名称并选择类型");
@@ -4147,14 +4191,6 @@ module.exports = class PaperLibrary extends Plugin {
         this.settings.metadata ||= {};
         this.settings.metadata[paper] = { ...this.settings.metadata[paper], ...metadata };
         await this.saveData(this.settings);
-        const file = await Notebook.pageFor(this, paper);
-        await this.app.fileManager.processFrontMatter(file, (fm) => {
-          for (const [k, v] of Object.entries(metadata)) {
-            if (v === void 0 || v === null || v === "") continue;
-            const key = { "firstAuthor": "first-author", "correspondingAuthor": "corresponding-author", "metadataSource": "metadata-source", "metadataUrl": "metadata-url" }[k] || k;
-            fm[key] = v;
-          }
-        });
         for (const leaf of this.app.workspace.getLeavesOfType(HOME)) leaf.view.home?.refresh().catch(console.error);
       },
       connectCodex: () => this.connectCodex(),
@@ -4230,10 +4266,10 @@ ${body || ""}`);
           await this.app.vault.adapter.trashLocal(recoveryPath);
         }
         if (note._block && file) await this.app.vault.process(file, (source) => {
-          const current = Notebook.blocks(source, file.path).find((n) => n.id === note.id);
+          const current = Notebook.blocks(source, file.path, { records: this.settings.annotationRecords }).find((n) => n.id === note.id);
           if (!current || current._block !== note._block) throw new Error("笔记已改变，请刷新后再删除。");
           let cleaned = source;
-          for (const version of Notebook.blocks(source, file.path, { allVersions: true }).filter((n) => n.id === note.id)) cleaned = cleaned.replace(version._block, "");
+          for (const version of Notebook.blocks(source, file.path, { allVersions: true, records: this.settings.annotationRecords }).filter((n) => n.id === note.id)) cleaned = cleaned.replace(version._block, "");
           return cleaned;
         });
         else if (file) await this.app.fileManager.trashFile(file);
