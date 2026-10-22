@@ -1,15 +1,27 @@
 # Paper Library · Zotero → Obsidian companion
 
-Source-only Zotero Desktop bootstrap extension for **Zotero 7–10**, including
+Zotero Desktop bootstrap extension for **Zotero 7–10.0**, including
 10.0.6. Right-click selected library rows and choose **导入到 Obsidian · Paper Library**.
 This companion hands identifiers to Obsidian; the Paper Library Obsidian plugin
 performs the actual metadata/PDF import. No npm dependencies, network calls,
 Zotero database writes, profile discovery, or installation scripts are included.
 
-## Installation and packaging handoff
+## Installation
 
-XPI building is a separate task. Package these files with **manifest.json at the
-archive root**, not inside a `zotero-addon/` directory:
+Download [paper-library-zotero.xpi](https://github.com/Je1zzz/naiwa-paper-library/raw/refs/heads/main/zotero-addon/paper-library-zotero.xpi), then use Zotero Tools → Plugins → gear → Install Plugin From File.
+
+## Build from source
+
+Build a local test XPI from the repository root (Node.js 20+, no dependencies):
+
+```powershell
+node tools/build-zotero.cjs --out ./dist/paper-library-zotero-0.1.1.xpi
+node --test tests/zotero-build.test.cjs
+```
+
+The builder refuses to overwrite an existing output. It validates the manifest,
+checks runtime JavaScript syntax, and creates a deterministic ZIP containing only
+these files with **manifest.json at the archive root**:
 
 ```text
 manifest.json
@@ -17,7 +29,7 @@ bootstrap.js
 chrome/content/companion.js
 ```
 
-Exclude `companion.test.cjs` from the runtime archive. README is optional.
+Tests, diagnostics, and this README are excluded from the runtime archive.
 The resulting ZIP-format archive must have an `.xpi` extension. There is no
 `install.rdf`, overlay, `chrome.manifest`, generated bundle, or signing/publishing
 step. Resources load relative to the bootstrap `rootURI`, which also works inside
@@ -27,8 +39,8 @@ After a separate build, the user can install the XPI in Zotero via **Tools →
 Plugins** (some versions call this Add-ons), the gear menu → **Install Plugin From
 File…**, and select the XPI. Enable it if prompted. Bootstrap supports enable,
 disable, and removal without a restart. **Installing and enabling that XPI activates
-the right-click command; having this source directory alone does not.** This development task does **not** build
-an XPI, install anything, restart Zotero, or modify the user's profile.
+the right-click command; having this source directory alone does not.** Building
+an XPI does not install anything, restart Zotero, or modify the user's profile.
 
 Real-profile installation remains unperformed. The supported install path here is
 the running Zotero Plugins UI; no safe, verified headless installation into a live
@@ -59,9 +71,9 @@ if needed. The companion never calls quit/restart or starts a server itself.
 The port check is an in-process readiness check, not a successful API GET or
 end-to-end import verification.
 
-Reported existing setup: Zotero 10.0.6 with local API v3 running, OpenCodex installed,
-and Codex logged in; not independently probed by this task. The companion requires
-no Codex/OpenCodex login and does not alter either configuration.
+The Zotero helper independently confirmed Zotero 10.0.6 and local API v3 running
+on 2026-10-22. The companion requires no Codex/OpenCodex login and does not alter
+either configuration.
 
 ## Configure the vault
 
@@ -205,7 +217,58 @@ requested Chinese labels in every Zotero locale without locale resources.
 - [Zotero 10.0.6 local API checkbox preference](https://github.com/zotero/zotero/blob/10.0.6/chrome/content/zotero/preferences/preferences_advanced.xhtml)
 - [Zotero 10.0.6 Enable and Restart action](https://github.com/zotero/zotero/blob/10.0.6/chrome/content/zotero/preferences/preferences_advanced.js)
 
-Compatibility range in the manifest: `7.0` through `10.*`. Live runtime testing
-has not been performed on any of those versions; source/API verification and
-the automated stub tests are the current evidence. No update URL or publication
-endpoint is configured.
+Compatibility range in the manifest: `7.0` through `10.0.*`. The upper bound follows
+the developer guide's tested-minor-version format; this does not establish live
+runtime testing across the full range.
+
+## Installation failure fixed in 0.1.1
+
+The old manifest omitted `applications.zotero.update_url`. Zotero 10.0.6's installed
+`C:/path/to/Zotero/omni.ja` → `modules/Extension.sys.mjs:1879` explicitly records
+`applications.zotero.update_url not provided` as a manifest error. The official
+[10.0.6 platform build patch](https://github.com/zotero/zotero/blob/10.0.6/app/scripts/fetch_xulrunner#L229-L247)
+enforces `id`, `update_url`, and `strict_max_version`. This gate applies even when
+the plugin is distributed only as a local XPI. `author` is optional in the installed
+schema; changing to Manifest V3 or Firefox's `applications.gecko` is not a fix.
+
+The four existing XPIs under `artifacts/v1.0.0` and `artifacts/v1.0.0-final` have
+valid CRCs and already put the manifest at the ZIP root. They reproduce the missing
+update URL error, not a nested-directory failure. `10.*` includes 10.0.6 and was
+not the cause of rejection; the narrower `10.0.*` bound is a compatibility correction.
+
+The update URL is
+`https://raw.githubusercontent.com/Je1zzz/naiwa-paper-library/main/zotero-addon/updates.json`.
+The source `updates.json` contains a legal empty feed:
+
+```json
+{"addons":{"paper-library-obsidian@paper-library.local":{"updates":[]}}}
+```
+
+An empty array advertises no updates. No Release has been published.
+This feed is hosted separately and is not bundled inside the XPI. The builder
+checks its addon id and array shape before packaging, and rejects `.invalid`
+placeholder hosts. The update feed is tracked in this repository. Local manifest validation does not establish live application installation.
+
+The declared minimum is Zotero 7.0. Its
+[official platform patch](https://github.com/zotero/zotero/blob/7.0/app/scripts/fetch_xulrunner)
+already enforces `applications.zotero.update_url`, in addition to `id` and
+`strict_max_version`. The installed 10.0.6 patch retains these checks. The upper
+bound remains `10.0.*`; actual installation and runtime behavior remain untested.
+
+Independent read-only verification with Python's ZIP reader and a replay of the
+manifest gate extracted from the installed application:
+
+```powershell
+python tests/zotero-xpi-check.py --node node --omni C:/path/to/Zotero/omni.ja --xpi ./dist/paper-library-zotero-0.1.1.xpi --old-xpi ./old-paper-library-zotero.xpi
+```
+
+This is an installed-source gate replay, not an actual Zotero installation or a
+live application log. No persisted application log was available in the active
+profile, and the stock local API exposes no error-console reader. No profile
+files were changed to enable logging or install the plugin.
+
+For optional live parser/error-console evidence without installing the extension,
+run `diagnose-install.js` in Zotero's **Tools → Developer → Run JavaScript** with
+**Run as async function** checked. It reads the two XPIs through Zotero's real
+AddonManager, returns parser results and relevant error-console messages, and
+never calls `install()`, enables the extension, restarts, or accesses library items.

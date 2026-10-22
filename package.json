@@ -7,7 +7,9 @@
     "node": ">=20"
   },
   "scripts": {
-    "build": "node build-source.cjs"
+    "build": "node build-source.cjs",
+    "test": "node --test tests/*.test.cjs",
+    "build:zotero": "node tools/build-zotero.cjs"
   },
   "devDependencies": {
     "esbuild": "0.28.2"

@@ -117,7 +117,7 @@
 .pl-modal-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 18px; }
 .pl-field-label { display: block; font-size: 11px; color: var(--pl-muted); margin: 15px 0 7px; }
 .pl-endpoint { font-size: 10px !important; overflow-wrap: anywhere; margin-top: 10px !important; }
-.pl-ai-heading { display: flex; align-items: center; justify-content: space-between; padding: 18px 18px 3px; }
+.pl-ai-heading { display: flex; flex-wrap:wrap; gap:4px; align-items: center; justify-content: space-between; padding: 18px 18px 3px; }
 .pl-model-label { color: var(--pl-muted); font-size: 10px; margin: 4px 18px 8px; overflow-wrap: anywhere; }
 .pl-chat-log { flex: 1; min-height: 60px; overflow-y: auto; padding: 8px 15px; }
 .pl-chat-log .pl-side-empty { padding-top: 25px; }
@@ -178,8 +178,17 @@
 .pl-api-modal .pl-field-label { display: block; margin-top: 16px; margin-bottom: 6px; }
 .pl-key-status { color: var(--pl-accent); font-size: 12px; padding: 10px 0; }
 .pl-api-modal .pl-modal-actions { flex-wrap: wrap; }
-.pl-model-controls { display: grid; grid-template-columns: minmax(0,1fr) 85px; gap: 7px; margin-top: 10px; }
+.pl-model-controls { display: grid; grid-template-columns: minmax(72px,.85fr) minmax(90px,1.6fr) minmax(60px,.65fr); gap: 5px; margin-top: 10px; }
 .pl-model-controls select { min-width: 0; font-size: 11px; text-overflow: ellipsis; }
+.pl-catalog-tools { display:flex; align-items:center; justify-content:space-between; gap:12px; margin:8px 0; }
+.pl-model-manager { margin:8px 0 14px; border:1px solid var(--background-modifier-border,#e5e5e5); border-radius:8px; padding:10px; }
+.pl-model-manager summary { cursor:pointer; font-size:13px; margin-bottom:8px; }
+.pl-model-options { max-height:180px; overflow:auto; }
+.pl-model-option { display:flex; align-items:center; gap:8px; padding:6px 2px; font-size:12px; overflow-wrap:anywhere; }
+.pl-model-option input,.pl-model-free input { width:auto; flex:none; }
+.pl-model-free { display:flex; align-items:center; gap:8px; font-size:12px; margin:8px 0; }
+.pl-figure-preview { margin:12px 0; }
+.pl-figure-preview canvas { width:100%; height:auto; background:white; border-radius:4px; }
 .pl-chat-modes { display: flex; gap: 8px; }
 .pl-chat-modes .pl-btn { font-size: 11px; padding: 5px 9px; }
 .pl-chat-composer { flex-shrink: 0; }
