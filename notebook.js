@@ -2,18 +2,32 @@ const Core = require('./core');
 const START = '<!-- paper-library:annotation ';
 const GROUP_START = '<!-- paper-library:annotations:start -->';
 const GROUP_END = '<!-- paper-library:annotations:end -->';
-function blocks(source, path) {
+// Older builds escaped array delimiters outside JSON strings, making rects
+// unreadable. Recover those delimiters without changing literal string values.
+function annotationMeta(text){
+  try{return JSON.parse(text);}catch{}
+  let fixed='',quoted=false,escaped=false;
+  for(let i=0;i<text.length;i++){
+    const char=text[i];
+    if(!quoted&&/^\\u005[bd]$/i.test(text.slice(i,i+6))){fixed+=text.slice(i,i+6).toLowerCase()==='\\u005b'?'[':']';i+=5;continue;}
+    fixed+=char;
+    if(quoted){if(escaped)escaped=false;else if(char==='\\')escaped=true;else if(char==='"')quoted=false;}else if(char==='"')quoted=true;
+  }
+  return JSON.parse(fixed);
+}
+function blocks(source, path, {allVersions=false}={}) {
   const out = [];
   const re = /<!-- paper-library:annotation (.*?) -->\r?\n([\s\S]*?)\r?\n<!-- paper-library:end -->/g;
   for (const m of source.matchAll(re)) {
     try {
-      const meta = JSON.parse(m[1]);
+      const meta = annotationMeta(m[1]);
       const body = m[2].split(/\r?\n<!-- paper-library:body -->\r?\n/)[1] ?? '';
       const translated = m[2].match(/<!-- paper-library:translation -->\r?\n([\s\S]*?)\r?\n<!-- paper-library:translation:end -->/);
       out.push({ ...meta, ...(translated ? { translation: translated[1] } : {}), body, path, _block: m[0] });
     } catch { /* Preserve malformed blocks for manual repair. */ }
   }
-  return out;
+  if(allVersions)return out;
+  const latest=new Map();for(const note of out){const key=note.id||Symbol(),old=latest.get(key);if(!old||String(note.updated||'')>=String(old.updated||''))latest.set(key,note);}return [...latest.values()];
 }
 async function pageFor(plugin, paper) {
   plugin.settings.notePages ||= {};
@@ -37,9 +51,9 @@ async function pageFor(plugin, paper) {
   return plugin.app.vault.getAbstractFileByPath(path);
 }
 function group(source) {
-  const notes = blocks(source, '');
+  const versions=blocks(source,'',{allVersions:true}),notes = blocks(source, '');
   let prose = source;
-  for (const note of notes) prose = prose.replace(note._block, '');
+  for (const note of versions) prose = prose.replace(note._block, '');
   const region = prose.indexOf(GROUP_START), end = prose.indexOf(GROUP_END, region);
   if (region >= 0 && end >= 0) {
     const manual = prose.slice(region + GROUP_START.length, end).replace(/^## (?:批注|便笺)\s*$/gm, '').trim();
@@ -52,7 +66,7 @@ function blockFor(note) {
   const title = (note.title || ({ sticky: '便笺', highlight: '划线批注', translation: '翻译与批注', ai: 'AI 摘记' }[note.kind]) || '阅读笔记').replace(/[\r\n]/g, ' ');
   const quote = note.quote ? '\n> ' + note.quote.replace(/\n/g, '\n> ') + '\n' : '';
   const translated = note.translation ? `\n**译文**\n\n<!-- paper-library:translation -->\n${note.translation}\n<!-- paper-library:translation:end -->\n` : '';
-  const encoded = JSON.stringify(meta).replace(/\[/g,'\\u005b').replace(/\]/g,'\\u005d').replace(/</g,'\\u003c').replace(/>/g,'\\u003e');
+  const encoded = JSON.stringify(meta).replace(/</g,'\\u003c').replace(/>/g,'\\u003e');
   return `${START}${encoded} -->\n### ${title} · P${note.page}\n\n[[${note.paper}#page=${note.page}|返回第 ${note.page} 页]]${quote}${translated}\n<!-- paper-library:body -->\n${body || ''}\n<!-- paper-library:end -->`;
 }
 async function save(plugin, note) {
@@ -65,7 +79,7 @@ async function save(plugin, note) {
     const previous = blocks(source, file.path).find(n => n.id === data.id);
     if (previous) {
       if ((note._block && previous._block !== note._block) || (note.updated && previous.updated !== note.updated)) throw new Error('笔记已在其他窗口修改，请刷新后重试。');
-      return group(source.replace(previous._block, () => block));
+      let cleaned=source;for(const version of blocks(source,file.path,{allVersions:true}).filter(n=>n.id===data.id))cleaned=cleaned.replace(version._block,'');return group(cleaned+'\n\n'+block+'\n');
     }
     return group(source + '\n\n' + block + '\n');
   });

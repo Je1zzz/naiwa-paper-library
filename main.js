@@ -22,7 +22,7 @@ var require_reader = __commonJS({
         const COLORS = { yellow: "#F5CC6E", red: "#F06464", green: "#63B64A", blue: "#3BAFDA", purple: "#A48BDF", pink: "#D872DF", orange: "#F29B38", gray: "#A6A6A6" };
         const labels = { highlight: "划线批注", sticky: "页内便笺", note: "阅读笔记", ai: "AI 摘记" };
         let color = "yellow", pageObserver, pageBoxes = [], fullText = "", fullTextPromise, fullTextStatus = "", translation = null;
-        let annotationStyle = "highlight", focusedNoteId = null, translationTimer, selectionGeneration = 0, selectionRange, metadata = null, recordedKey = "";
+        let annotationStyle = null, focusedNoteId = null, translationTimer, selectionGeneration = 0, selectionRange, metadata = null, recordedKey = "";
         const annotationQueues = /* @__PURE__ */ new Map(), pendingEdits = /* @__PURE__ */ new Set();
         const catalogAttempts = /* @__PURE__ */ new Set();
         let openProperty = null;
@@ -191,18 +191,18 @@ var require_reader = __commonJS({
           const swatch = button("", selectionColors, () => {
             color = key;
             markColor();
-            return styleSelection();
+            if (annotationStyle) return styleSelection();
           }, "pl-swatch");
           swatch.style.backgroundColor = value;
           swatch.dataset.color = key;
           swatch.setAttribute("aria-label", { yellow: "黄色", red: "红色", green: "绿色", blue: "蓝色", purple: "紫色", pink: "粉色", orange: "橙色", gray: "灰色" }[key]);
         }
         const selectionActions = el("div", "pl-selection-actions", null, selectionBar);
-        const highlightButton = button("文本", selectionActions, () => {
+        const highlightButton = button("高亮", selectionActions, () => {
           annotationStyle = "highlight";
           markColor();
           return styleSelection();
-        }, "is-active");
+        });
         highlightButton.setAttribute("aria-label", "文本高亮");
         const underlineButton = button("下划线", selectionActions, () => {
           annotationStyle = "underline";
@@ -210,18 +210,79 @@ var require_reader = __commonJS({
           return styleSelection();
         });
         button("批注", selectionActions, async () => {
+          annotationStyle ||= "highlight";
+          markColor();
           const note = await styleSelection();
           if (note) {
             focusedNoteId = note.id;
             sideTab = "notes";
+            setSideHidden(false).catch(error);
             renderSide();
           }
         });
         button("×", selectionActions, clearSelection).setAttribute("aria-label", "取消选中");
         const selectionTranslation = el("div", "pl-selection-translation", "选中文字后自动翻译", selectionBar);
+        const selectionSaveStatus = el("small", "pl-selection-save-status", "", selectionBar);
+        selectionSaveStatus.setAttribute("aria-live", "polite");
         selectionBar.addEventListener("pointerdown", (e) => e.stopPropagation());
         selectionBar.addEventListener("mousedown", (e) => e.preventDefault());
         const side = el("aside", "pl-side", null, shell);
+        const sidePreferences = bridge.getReaderPreferences?.() || {};
+        let sideWidth = Number(sidePreferences.sideWidth) || 322, sideHidden = Boolean(sidePreferences.sideHidden), sideDrag = null;
+        const sideHandle = el("div", "pl-side-resizer", null, side);
+        sideHandle.tabIndex = 0;
+        sideHandle.setAttribute("role", "separator");
+        sideHandle.setAttribute("aria-label", "调整批注与对话侧栏宽度");
+        sideHandle.setAttribute("aria-orientation", "vertical");
+        const showSideButton = button("‹ 批注 / AI", main, () => setSideHidden(false), "pl-side-restore");
+        function applySide() {
+          const max = Math.max(200, Math.min(960, root.clientWidth - 240)), width = Math.max(200, Math.min(sideWidth, max));
+          shell.style.gridTemplateColumns = sideHidden ? "minmax(0,1fr) 0px" : `minmax(0,1fr) ${width}px`;
+          side.classList.toggle("pl-hidden", sideHidden);
+          showSideButton.classList.toggle("pl-hidden", !sideHidden);
+          sideHandle.setAttribute("aria-valuenow", String(Math.round(width)));
+          sideHandle.setAttribute("aria-valuemin", "200");
+          sideHandle.setAttribute("aria-valuemax", String(max));
+        }
+        async function setSideHidden(value) {
+          sideHidden = value;
+          applySide();
+          await bridge.saveReaderPreferences?.({ sideHidden });
+        }
+        function sideMove(event) {
+          if (!sideDrag) return;
+          sideWidth = Math.max(200, Math.min(960, sideDrag.width + sideDrag.x - event.clientX, Math.max(200, root.clientWidth - 240)));
+          applySide();
+        }
+        function endSideDrag() {
+          if (!sideDrag) return;
+          sideDrag = null;
+          root.classList.remove("pl-resizing-side");
+          doc.removeEventListener("pointermove", sideMove);
+          doc.removeEventListener("pointerup", endSideDrag);
+          doc.removeEventListener("pointercancel", endSideDrag);
+          bridge.saveReaderPreferences?.({ sideWidth }).catch(error);
+        }
+        sideHandle.addEventListener("pointerdown", (event) => {
+          if (event.button !== 0) return;
+          event.preventDefault();
+          sideDrag = { x: event.clientX, width: side.getBoundingClientRect().width };
+          root.classList.add("pl-resizing-side");
+          doc.addEventListener("pointermove", sideMove);
+          doc.addEventListener("pointerup", endSideDrag);
+          doc.addEventListener("pointercancel", endSideDrag);
+        });
+        sideHandle.addEventListener("keydown", (event) => {
+          if (!["ArrowLeft", "ArrowRight"].includes(event.key)) return;
+          event.preventDefault();
+          sideWidth += event.key === "ArrowLeft" ? 24 : -24;
+          sideWidth = Math.max(200, Math.min(960, sideWidth));
+          applySide();
+          bridge.saveReaderPreferences?.({ sideWidth }).catch(error);
+        });
+        const sideObserver = new win.ResizeObserver(applySide);
+        sideObserver.observe(root);
+        applySide();
         const tabs = el("div", "pl-tabs", null, side);
         tabs.prepend(frog);
         const noteTab = button("批注与笔记", tabs, () => {
@@ -232,6 +293,9 @@ var require_reader = __commonJS({
           sideTab = "ai";
           renderSide();
         });
+        const hideSideButton = button("›", tabs, () => setSideHidden(true), "pl-side-hide");
+        hideSideButton.setAttribute("aria-label", "隐藏批注与对话侧栏");
+        hideSideButton.title = "隐藏侧栏，专注阅读";
         const sideContent = el("div", "pl-side-content", null, side);
         const footer = el("div", "pl-status", "选择一篇文献，开始阅读", main);
         markColor();
@@ -550,9 +614,12 @@ ${line}`);
           if (!quote) return;
           const rects = Core2.rectsInPage(range.getClientRects(), pageBox.getBoundingClientRect());
           if (!rects.length) return;
-          if (selection?.paper === paperPath && selection?.page === page && selection?.quote === quote) return;
+          if (selection?.paper === paperPath && selection?.page === page && selection?.quote === quote && JSON.stringify(selection.rects) === JSON.stringify(rects)) return;
           selection = { quote, rects, page, paper: paperPath };
           selectionRange = range.cloneRange();
+          annotationStyle = null;
+          selectionSaveStatus.textContent = "";
+          markColor();
           ++selectionGeneration;
           clearTimeout(translationTimer);
           selectionTranslation.textContent = "准备翻译…";
@@ -567,6 +634,8 @@ ${line}`);
         function clearSelection() {
           selection = null;
           selectionRange = null;
+          annotationStyle = null;
+          markColor();
           ++selectionGeneration;
           clearTimeout(translationTimer);
           selectionBar.classList.add("pl-hidden");
@@ -591,11 +660,11 @@ ${line}`);
           for (const box of pageBoxes) annotationsFor(box, Number(box.dataset.page));
         }
         function annotationsFor(pageBox2, page2) {
-          if (dragging || pendingEdits.size || pageBox2.contains(doc.activeElement)) return;
+          const preserveStickies = dragging || pendingEdits.size || pageBox2.contains(doc.activeElement);
           const highlights = pageBox2.querySelector(".pl-highlights"), stickies = pageBox2.querySelector(".pl-sticky-layer");
           if (!highlights || !stickies) return;
           highlights.replaceChildren();
-          stickies.replaceChildren();
+          if (!preserveStickies) stickies.replaceChildren();
           for (const note of notes.filter((n) => Number(n.page) === page2)) {
             if (note.kind === "highlight" && Array.isArray(note.rects)) for (const r of note.rects) {
               if (![r.x, r.y, r.w, r.h].every(Number.isFinite)) continue;
@@ -608,7 +677,7 @@ ${line}`);
                 mark.style.height = "2px";
               }
             }
-            if (note.kind === "sticky" && note.point) {
+            if (note.kind === "sticky" && note.point && !preserveStickies) {
               const card = el("div", "pl-sticky", null, stickies);
               card.dataset.noteId = note.id;
               card.style.left = Core2.clamp(Number(note.point.x) || 0, 0, 0.9) * 100 + "%";
@@ -847,19 +916,30 @@ ${line}`);
           selectionBar.style.top = (rect.bottom + height + 12 < area.bottom ? rect.bottom + 8 : Math.max(area.top + 8, rect.top - height - 8)) + "px";
         }
         async function styleSelection() {
-          if (!selection) return;
+          if (!selection || !annotationStyle) return;
           const selected = selection;
           const previous = selected.saving || Promise.resolve();
           const style = annotationStyle, selectedColor = color;
+          selectionSaveStatus.textContent = "保存标注中…";
           selected.saving = previous.catch(() => {
           }).then(async () => {
-            const saved = await bridge.saveNote({ ...selected.note || {}, kind: "highlight", style, color: selectedColor, paper: selected.paper, page: selected.page, quote: selected.quote, rects: selected.rects, body: selected.note?.body || "", translation: selected.translation || "" });
+            if (selected.note?.id) await annotationQueues.get(selected.note.id);
+            const current = notes.find((n) => n.id === selected.note?.id) || selected.note || {};
+            const saved = await bridge.saveNote({ ...current, kind: "highlight", style, color: selectedColor, paper: selected.paper, page: selected.page, quote: selected.quote, rects: selected.rects, body: current.body || "", translation: selected.translation || "" });
             selected.note = saved;
+            if (selected.paper !== paperPath || destroyed) return saved;
             const index = notes.findIndex((n) => n.id === saved.id);
             if (index >= 0) notes[index] = saved;
             else notes.push(saved);
             renderAnnotations();
+            if (selection === selected) {
+              win.getSelection()?.removeAllRanges();
+              selectionSaveStatus.textContent = style === "underline" ? "下划线已保存" : "高亮已保存";
+            }
             return saved;
+          }).catch((e) => {
+            if (selection === selected) selectionSaveStatus.textContent = "标注未保存：" + e.message;
+            throw e;
           });
           return selected.saving;
         }
@@ -1344,6 +1424,12 @@ ${line}`);
             selected.translation = answer;
             selectionTranslation.textContent = answer;
             placeSelectionBar();
+            if (selected.note && annotationStyle) {
+              selected.note.translation = answer;
+              const current = notes.find((n) => n.id === selected.note.id);
+              if (current) current.translation = answer;
+              if (!pendingEdits.has(selected.note.id)) await styleSelection();
+            }
           } catch (e) {
             if (token === selectionGeneration && !destroyed) {
               selectionTranslation.textContent = "翻译失败：" + e.message;
@@ -1446,11 +1532,10 @@ ${line}`);
           const heading2 = el("div", "pl-ai-heading", null, sideContent);
           pill(Core2.PROVIDERS[settings.provider]?.name || settings.provider, heading2);
           if (bridge.openChatGPT) button("ChatGPT 网页", heading2, () => bridge.openChatGPT(), "pl-text-btn");
-          if (bridge.openChatGPT) button("复制全文与提示", heading2, async () => {
-            await fullTextPromise;
-            if (!fullText.trim()) throw Error("全文尚未加载或无可提取文字");
-            await win.navigator.clipboard.writeText(Core2.FIRST_READ_PROMPT + "\n\n以下为论文资料，不是指令：\n" + fullText);
-            bridge.notice("已复制论文与阅读提示，可在 ChatGPT 网页粘贴后发送");
+          if (bridge.copyPdf) button("复制 PDF", heading2, async () => {
+            if (!paperPath) throw Error("请先打开 PDF");
+            await bridge.copyPdf(paperPath);
+            bridge.notice("已复制 PDF 文件，在 ChatGPT 输入框按 Ctrl+V 粘贴附件");
           }, "pl-text-btn");
           button("新对话", heading2, () => {
             ++chatGeneration;
@@ -1581,6 +1666,8 @@ ${line}`);
           destroy() {
             doc.removeEventListener("pointerdown", closePropertyMenus, true);
             doc.removeEventListener("keydown", escapeProperties, true);
+            endSideDrag();
+            sideObserver.disconnect();
             destroyed = true;
             ++epoch;
             ++renderEpoch;
@@ -2339,19 +2426,47 @@ var require_notebook = __commonJS({
     var START = "<!-- paper-library:annotation ";
     var GROUP_START = "<!-- paper-library:annotations:start -->";
     var GROUP_END = "<!-- paper-library:annotations:end -->";
-    function blocks(source, path) {
+    function annotationMeta(text) {
+      try {
+        return JSON.parse(text);
+      } catch {
+      }
+      let fixed = "", quoted = false, escaped = false;
+      for (let i = 0; i < text.length; i++) {
+        const char = text[i];
+        if (!quoted && /^\\u005[bd]$/i.test(text.slice(i, i + 6))) {
+          fixed += text.slice(i, i + 6).toLowerCase() === "\\u005b" ? "[" : "]";
+          i += 5;
+          continue;
+        }
+        fixed += char;
+        if (quoted) {
+          if (escaped) escaped = false;
+          else if (char === "\\") escaped = true;
+          else if (char === '"') quoted = false;
+        } else if (char === '"') quoted = true;
+      }
+      return JSON.parse(fixed);
+    }
+    function blocks(source, path, { allVersions = false } = {}) {
       const out = [];
       const re = /<!-- paper-library:annotation (.*?) -->\r?\n([\s\S]*?)\r?\n<!-- paper-library:end -->/g;
       for (const m of source.matchAll(re)) {
         try {
-          const meta = JSON.parse(m[1]);
+          const meta = annotationMeta(m[1]);
           const body = m[2].split(/\r?\n<!-- paper-library:body -->\r?\n/)[1] ?? "";
           const translated = m[2].match(/<!-- paper-library:translation -->\r?\n([\s\S]*?)\r?\n<!-- paper-library:translation:end -->/);
           out.push({ ...meta, ...translated ? { translation: translated[1] } : {}, body, path, _block: m[0] });
         } catch {
         }
       }
-      return out;
+      if (allVersions) return out;
+      const latest = /* @__PURE__ */ new Map();
+      for (const note of out) {
+        const key = note.id || /* @__PURE__ */ Symbol(), old = latest.get(key);
+        if (!old || String(note.updated || "") >= String(old.updated || "")) latest.set(key, note);
+      }
+      return [...latest.values()];
     }
     async function pageFor(plugin, paper) {
       plugin.settings.notePages ||= {};
@@ -2388,9 +2503,9 @@ paper: ${JSON.stringify(paper)}
       return plugin.app.vault.getAbstractFileByPath(path);
     }
     function group(source) {
-      const notes = blocks(source, "");
+      const versions = blocks(source, "", { allVersions: true }), notes = blocks(source, "");
       let prose = source;
-      for (const note of notes) prose = prose.replace(note._block, "");
+      for (const note of versions) prose = prose.replace(note._block, "");
       const region = prose.indexOf(GROUP_START), end = prose.indexOf(GROUP_END, region);
       if (region >= 0 && end >= 0) {
         const manual = prose.slice(region + GROUP_START.length, end).replace(/^## (?:批注|便笺)\s*$/gm, "").trim();
@@ -2409,7 +2524,7 @@ paper: ${JSON.stringify(paper)}
 ${note.translation}
 <!-- paper-library:translation:end -->
 ` : "";
-      const encoded = JSON.stringify(meta).replace(/\[/g, "\\u005b").replace(/\]/g, "\\u005d").replace(/</g, "\\u003c").replace(/>/g, "\\u003e");
+      const encoded = JSON.stringify(meta).replace(/</g, "\\u003c").replace(/>/g, "\\u003e");
       return `${START}${encoded} -->
 ### ${title} · P${note.page}
 
@@ -2428,7 +2543,9 @@ ${body || ""}
         const previous = blocks(source, file.path).find((n) => n.id === data.id);
         if (previous) {
           if (note._block && previous._block !== note._block || note.updated && previous.updated !== note.updated) throw new Error("笔记已在其他窗口修改，请刷新后重试。");
-          return group(source.replace(previous._block, () => block));
+          let cleaned = source;
+          for (const version of blocks(source, file.path, { allVersions: true }).filter((n) => n.id === data.id)) cleaned = cleaned.replace(version._block, "");
+          return group(cleaned + "\n\n" + block + "\n");
         }
         return group(source + "\n\n" + block + "\n");
       });
@@ -3028,6 +3145,24 @@ var require_completion = __commonJS({
   }
 });
 
+// clipboard.js
+var require_clipboard = __commonJS({
+  "clipboard.js"(exports2, module2) {
+    var { execFile } = require("node:child_process");
+    var fs = require("node:fs");
+    var path = require("node:path");
+    async function copyPdf(file, { execute = execFile, platform = process.platform } = {}) {
+      if (platform !== "win32") throw Error("PDF 文件剪贴板目前支持 Windows；其他系统请从文件管理器复制 PDF");
+      const absolute = path.resolve(file);
+      if (path.extname(absolute).toLowerCase() !== ".pdf" || !fs.statSync(absolute).isFile()) throw Error("请选择实际存在的 PDF 文件");
+      const script = "$ErrorActionPreference='Stop'; Add-Type -AssemblyName System.Windows.Forms; $naiwaFiles=New-Object System.Collections.Specialized.StringCollection; [void]$naiwaFiles.Add($env:NAIWA_PDF_CLIPBOARD_FILE); [System.Windows.Forms.Clipboard]::SetFileDropList($naiwaFiles); if(-not [System.Windows.Forms.Clipboard]::ContainsFileDropList()){throw 'File clipboard unavailable'}";
+      const command = Buffer.from(script, "utf16le").toString("base64");
+      await new Promise((resolve, reject) => execute(path.join(process.env.SystemRoot || "C:\\Windows", "System32", "WindowsPowerShell", "v1.0", "powershell.exe"), ["-NoProfile", "-NonInteractive", "-STA", "-EncodedCommand", command], { windowsHide: true, timeout: 15e3, env: { ...process.env, NAIWA_PDF_CLIPBOARD_FILE: absolute } }, (error) => error ? reject(Error("无法复制 PDF 文件，请关闭占用剪贴板的程序后重试")) : resolve()));
+    }
+    module2.exports = { copyPdf };
+  }
+});
+
 // plugin.js
 var { Plugin, ItemView, PluginSettingTab, Setting, Notice, TFile, MarkdownRenderer, loadPdfJs, parseYaml, stringifyYaml, requestUrl } = require("obsidian");
 var { createReader } = require_reader();
@@ -3042,6 +3177,7 @@ var Appearance = require_appearance();
 var Models = require_models();
 var Enrichment = require_enrichment();
 var Completion = require_completion();
+var FileClipboard = require_clipboard();
 var { readFileSync } = require("node:fs");
 var { join } = require("node:path");
 var { homedir } = require("node:os");
@@ -3943,9 +4079,11 @@ module.exports = class PaperLibrary extends Plugin {
       },
       openGraph: () => this.app.commands.executeCommandById("graph:open"),
       openPaperNote: (paper) => this.openPaperNote(paper),
-      getReaderPreferences: () => ({ headerCollapsed: Boolean(this.settings.readerHeaderCollapsed) }),
-      saveReaderPreferences: async ({ headerCollapsed }) => {
-        this.settings.readerHeaderCollapsed = Boolean(headerCollapsed);
+      getReaderPreferences: () => ({ headerCollapsed: Boolean(this.settings.readerHeaderCollapsed), sideWidth: this.settings.readerSideWidth || 322, sideHidden: Boolean(this.settings.readerSideHidden) }),
+      saveReaderPreferences: async ({ headerCollapsed, sideWidth, sideHidden }) => {
+        if (typeof headerCollapsed === "boolean") this.settings.readerHeaderCollapsed = headerCollapsed;
+        if (Number.isFinite(sideWidth)) this.settings.readerSideWidth = Math.min(960, Math.max(200, sideWidth));
+        if (typeof sideHidden === "boolean") this.settings.readerSideHidden = sideHidden;
         await this.saveData(this.settings);
       },
       searchVenueMetrics: (paper, force) => this.searchVenueMetrics(paper, force),
@@ -4094,7 +4232,9 @@ ${body || ""}`);
         if (note._block && file) await this.app.vault.process(file, (source) => {
           const current = Notebook.blocks(source, file.path).find((n) => n.id === note.id);
           if (!current || current._block !== note._block) throw new Error("笔记已改变，请刷新后再删除。");
-          return source.replace(current._block, "");
+          let cleaned = source;
+          for (const version of Notebook.blocks(source, file.path, { allVersions: true }).filter((n) => n.id === note.id)) cleaned = cleaned.replace(version._block, "");
+          return cleaned;
         });
         else if (file) await this.app.fileManager.trashFile(file);
         this.settings.hiddenNotes ||= [];
@@ -4170,6 +4310,11 @@ ${body || ""}`);
         if (!core) throw new Error("当前 Obsidian 没有网页浏览器核心插件，请升级 Obsidian");
         if (!core.enabled) await core.enable();
         core.instance.openUrl("https://chatgpt.com", "split");
+      },
+      copyPdf: async (paper) => {
+        const file = this.app.vault.getAbstractFileByPath(this.resolvePaper(paper));
+        if (!(file instanceof TFile) || file.extension.toLowerCase() !== "pdf") throw new Error("请先打开一篇 PDF");
+        await FileClipboard.copyPdf(this.app.vault.adapter.getFullPath(file.path));
       },
       beginFirstRead: async (paper, resume = false) => {
         this.settings.firstReads ||= {};

@@ -11,6 +11,7 @@ const Appearance = require('./appearance');
 const Models = require('./models');
 const Enrichment = require('./enrichment');
 const Completion = require('./completion');
+const FileClipboard = require('./clipboard');
 const { readFileSync } = require('node:fs');
 const { join } = require('node:path');
 const { homedir } = require('node:os');
@@ -416,8 +417,8 @@ module.exports = class PaperLibrary extends Plugin {
       setReadingStatus:async(paper,status)=>{if(status!==''&&!this.statusOptions().some(o=>o.id===status))throw new Error('阅读状态无效');this.settings.reading||={};this.settings.reading[paper]={...this.settings.reading[paper],status};await this.saveData(this.settings);},
       openGraph:()=>this.app.commands.executeCommandById('graph:open'),
       openPaperNote: paper => this.openPaperNote(paper),
-      getReaderPreferences:()=>({headerCollapsed:Boolean(this.settings.readerHeaderCollapsed)}),
-      saveReaderPreferences:async({headerCollapsed})=>{this.settings.readerHeaderCollapsed=Boolean(headerCollapsed);await this.saveData(this.settings);},
+      getReaderPreferences:()=>({headerCollapsed:Boolean(this.settings.readerHeaderCollapsed),sideWidth:this.settings.readerSideWidth||322,sideHidden:Boolean(this.settings.readerSideHidden)}),
+      saveReaderPreferences:async({headerCollapsed,sideWidth,sideHidden})=>{if(typeof headerCollapsed==='boolean')this.settings.readerHeaderCollapsed=headerCollapsed;if(Number.isFinite(sideWidth))this.settings.readerSideWidth=Math.min(960,Math.max(200,sideWidth));if(typeof sideHidden==='boolean')this.settings.readerSideHidden=sideHidden;await this.saveData(this.settings);},
       searchVenueMetrics:(paper,force)=>this.searchVenueMetrics(paper,force),
       getMetadata: paper => this.settings.metadata?.[paper],
       enrichMetadata:(paper,source,force)=>this.enrichMetadata(paper,source,force),
@@ -488,7 +489,7 @@ module.exports = class PaperLibrary extends Plugin {
         if (note._block && file) await this.app.vault.process(file, source => {
           const current = Notebook.blocks(source, file.path).find(n => n.id === note.id);
           if (!current || current._block !== note._block) throw new Error('笔记已改变，请刷新后再删除。');
-          return source.replace(current._block, '');
+          let cleaned=source;for(const version of Notebook.blocks(source,file.path,{allVersions:true}).filter(n=>n.id===note.id))cleaned=cleaned.replace(version._block,'');return cleaned;
         });
         else if (file) await this.app.fileManager.trashFile(file);
         // A migrated legacy annotation is retained on disk, but hidden after deletion.
@@ -522,6 +523,7 @@ module.exports = class PaperLibrary extends Plugin {
       saveEnabledModels:async(provider,models)=>{this.settings.enabledModels||={};this.settings.enabledModels[provider]=[...new Set(models)];await this.saveData(this.settings);},
       getFirstRead:paper=>this.settings.firstReads?.[paper]||null,
       openChatGPT:async()=>{const core=this.app.internalPlugins?.plugins?.webviewer;if(!core)throw new Error('当前 Obsidian 没有网页浏览器核心插件，请升级 Obsidian');if(!core.enabled)await core.enable();core.instance.openUrl('https://chatgpt.com','split');},
+      copyPdf:async paper=>{const file=this.app.vault.getAbstractFileByPath(this.resolvePaper(paper));if(!(file instanceof TFile)||file.extension.toLowerCase()!=='pdf')throw new Error('请先打开一篇 PDF');await FileClipboard.copyPdf(this.app.vault.adapter.getFullPath(file.path));},
       beginFirstRead:async(paper,resume=false)=>{this.settings.firstReads||={};const old=this.settings.firstReads[paper];if(old&&!(resume&&old.status==='done'&&/回答达到长度限制/.test(old.messages?.at(-1)?.content||'')))return false;this.settings.firstReads[paper]={...old,status:'pending',startedAt:Date.now()};await this.saveData(this.settings);return true;},
       saveFirstRead:async(paper,value)=>{this.settings.firstReads||={};this.settings.firstReads[paper]=value;await this.saveData(this.settings);},
       saveSettings: async ({ provider, model, key, reasoning, endpoint, maxOutputTokens }) => {
