@@ -2088,7 +2088,7 @@ var require_home = __commonJS({
         const integration = bridge.getIntegrations?.();
         if (integration) {
           const status = el("div", "pl-connection-status", void 0, content);
-          el("span", "", integration.checkedAt ? [integration.zotero?.available ? "Zotero 已连接" : "Zotero 未连接", integration.ai?.available ? "AI 已连接 · " + integration.ai.provider : integration.opencodex?.linkedProviders?.length ? "OpenCodex 已连接" : integration.codex?.loggedIn ? "Codex 已连接" : "AI 待连接"].join(" · ") : "正在检测本机连接…", status);
+          el("span", "", integration.checkedAt ? [integration.zotero?.available ? "Zotero 已连接" : "Zotero 未连接", integration.ai?.available ? "AI 已连接 · " + integration.ai.provider : "AI 待连接", integration.opencodex?.linkedProviders?.length ? "OpenCodex 已关联 " + integration.opencodex.linkedProviders.length + " 个供应商" : integration.opencodex?.installed ? "OpenCodex 配置已检测" : null].filter(Boolean).join(" · ") : "正在检测本机连接…", status);
           button("重新检测", status, async () => {
             await bridge.detectConnections();
             await refresh();
@@ -3486,7 +3486,7 @@ module.exports = class PaperLibrary extends Plugin {
     }
   }
   async autoLinkOpenCodex() {
-    if (this.bridge({}).getSettings().hasKey) return [];
+    const hadConnection = this.bridge({}).getSettings().hasKey;
     let config;
     try {
       config = JSON.parse(readFileSync(join(homedir(), ".opencodex", "config.json"), "utf8"));
@@ -3504,18 +3504,18 @@ module.exports = class PaperLibrary extends Plugin {
       } catch {
         continue;
       }
-      this.settings.models[id] = entry.defaultModel || entry.models?.[0] || Core.PROVIDERS[id].model;
+      if (this.app.secretStorage?.getSecret("paper-library-" + id)) continue;
+      const linked = this.settings.openCodexLinkedProviders?.includes(id);
+      if (!linked || !this.settings.models[id]) this.settings.models[id] = entry.defaultModel || entry.models?.[0] || Core.PROVIDERS[id].model;
       this.settings.endpoints ||= {};
-      this.settings.endpoints[id] = endpoint.href;
+      if (!linked || !this.settings.endpoints[id]) this.settings.endpoints[id] = endpoint.href;
       this.settings.catalogs ||= {};
       this.settings.catalogs[id] = [.../* @__PURE__ */ new Set([this.settings.models[id], ...entry.models || []])];
       names.push(id);
     }
-    if (names.length) {
-      this.settings.openCodexLinkedProviders = names;
-      this.settings.provider = names[0];
-      await this.saveData(this.settings);
-    }
+    this.settings.openCodexLinkedProviders = names;
+    if (!hadConnection && names.length) this.settings.provider = names.includes(config.defaultProvider) ? config.defaultProvider : names.includes(this.settings.provider) ? this.settings.provider : names[0];
+    await this.saveData(this.settings);
     return names;
   }
   async detectConnections() {
@@ -3537,8 +3537,7 @@ module.exports = class PaperLibrary extends Plugin {
         } catch {
         }
       })()]);
-      if (!this.bridge({}).getSettings().hasKey) result.opencodex.linkedProviders = await this.autoLinkOpenCodex();
-      else result.opencodex.linkedProviders = this.settings.openCodexLinkedProviders || [];
+      result.opencodex.linkedProviders = await this.autoLinkOpenCodex();
       result.ai = { available: this.bridge({}).getSettings().hasKey, provider: this.settings.provider };
       this.settings.integrations = result;
       await this.saveData(this.settings);

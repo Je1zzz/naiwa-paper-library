@@ -41,7 +41,7 @@ async function createHome(root, bridge) {
     search.oninput=()=>{query=search.value;renderRows(list);};
     optionSelect('文献排序',{recent:'最近阅读',title:'标题',year:'年份',rating:'Rating',added:'最近导入'},sort,tools,value=>{sort=value;renderRows(list);});
     if(label||folder)button('清除筛选',tools,()=>{label='';folder='';render();});
-    const integration=bridge.getIntegrations?.();if(integration){const status=el('div','pl-connection-status',undefined,content);el('span','',integration.checkedAt?[(integration.zotero?.available?'Zotero 已连接':'Zotero 未连接'),(integration.ai?.available?'AI 已连接 · '+integration.ai.provider:integration.opencodex?.linkedProviders?.length?'OpenCodex 已连接':integration.codex?.loggedIn?'Codex 已连接':'AI 待连接')].join(' · '):'正在检测本机连接…',status);button('重新检测',status,async()=>{await bridge.detectConnections();await refresh();});}
+    const integration=bridge.getIntegrations?.();if(integration){const status=el('div','pl-connection-status',undefined,content);el('span','',integration.checkedAt?[(integration.zotero?.available?'Zotero 已连接':'Zotero 未连接'),(integration.ai?.available?'AI 已连接 · '+integration.ai.provider:'AI 待连接'),integration.opencodex?.linkedProviders?.length?'OpenCodex 已关联 '+integration.opencodex.linkedProviders.length+' 个供应商':integration.opencodex?.installed?'OpenCodex 配置已检测':null].filter(Boolean).join(' · '):'正在检测本机连接…',status);button('重新检测',status,async()=>{await bridge.detectConnections();await refresh();});}
     const list=el('div','pl-home-table',undefined,content);renderRows(list);
   }
   function renderRows(list){

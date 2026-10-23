@@ -150,16 +150,23 @@ module.exports = class PaperLibrary extends Plugin {
     if(!this.settings.openCodexLinkedProviders?.includes(provider))return null;try{const config=JSON.parse(readFileSync(join(homedir(),'.opencodex','config.json'),'utf8')),entry=config.providers?.[provider];return entry?.adapter==='openai-chat'?entry:null;}catch{return null;}
   }
   async autoLinkOpenCodex(){
-    if(this.bridge({}).getSettings().hasKey)return [];let config;try{config=JSON.parse(readFileSync(join(homedir(),'.opencodex','config.json'),'utf8'));}catch{return [];}
+    const hadConnection=this.bridge({}).getSettings().hasKey;let config;try{config=JSON.parse(readFileSync(join(homedir(),'.opencodex','config.json'),'utf8'));}catch{return [];}
     const names=[];for(const[id,entry]of Object.entries(config.providers||{})){if(!Core.PROVIDERS[id]||entry.adapter!=='openai-chat'||!entry.apiKey)continue;let endpoint;try{const base=String(entry.baseUrl||'').replace(/[/]$/,'');endpoint=new URL(base+(base.endsWith('/chat/completions')?'':'/chat/completions'));if(endpoint.protocol!=='https:'&&!['localhost','127.0.0.1','[::1]'].includes(endpoint.hostname))continue;}catch{continue;}
-      this.settings.models[id]=entry.defaultModel||entry.models?.[0]||Core.PROVIDERS[id].model;this.settings.endpoints||={};this.settings.endpoints[id]=endpoint.href;this.settings.catalogs||={};this.settings.catalogs[id]=[...new Set([this.settings.models[id],...(entry.models||[])])];names.push(id);}
-    if(names.length){this.settings.openCodexLinkedProviders=names;this.settings.provider=names[0];await this.saveData(this.settings);}return names;
+      // A locally configured provider keeps its own key, endpoint and selected model.
+      if(this.app.secretStorage?.getSecret('paper-library-'+id))continue;
+      const linked=this.settings.openCodexLinkedProviders?.includes(id);
+      if(!linked||!this.settings.models[id])this.settings.models[id]=entry.defaultModel||entry.models?.[0]||Core.PROVIDERS[id].model;
+      this.settings.endpoints||={};if(!linked||!this.settings.endpoints[id])this.settings.endpoints[id]=endpoint.href;
+      this.settings.catalogs||={};this.settings.catalogs[id]=[...new Set([this.settings.models[id],...(entry.models||[])])];names.push(id);}
+    this.settings.openCodexLinkedProviders=names;
+    if(!hadConnection&&names.length)this.settings.provider=names.includes(config.defaultProvider)?config.defaultProvider:names.includes(this.settings.provider)?this.settings.provider:names[0];
+    await this.saveData(this.settings);return names;
   }
   async detectConnections(){
     if(this.connectionProbe)return this.connectionProbe;
     const task=(async()=>{const result={checkedAt:new Date().toISOString(),zotero:{available:false},opencodex:{installed:require('node:fs').existsSync(join(homedir(),'.opencodex','config.json'))},codex:{installed:false,loggedIn:false}};
       await Promise.allSettled([(async()=>{try{await this.zotero('items/top?limit=1');result.zotero={available:true};}catch{result.zotero={available:false};}})(),(async()=>{try{const home=this.settings.codexHome||process.env.CODEX_HOME||join(homedir(),'.codex'),status=await Codex.status(home);result.codex={installed:status.installed,loggedIn:status.loggedIn};if(status.loggedIn)await this.connectCodex(!this.bridge({}).getSettings().hasKey);}catch{}})()]);
-      if(!this.bridge({}).getSettings().hasKey)result.opencodex.linkedProviders=await this.autoLinkOpenCodex();else result.opencodex.linkedProviders=this.settings.openCodexLinkedProviders||[];result.ai={available:this.bridge({}).getSettings().hasKey,provider:this.settings.provider};this.settings.integrations=result;await this.saveData(this.settings);for(const leaf of this.app.workspace.getLeavesOfType(HOME))leaf.view.home?.refresh().catch(console.error);return result;})();this.connectionProbe=task;try{return await task;}finally{this.connectionProbe=null;}
+      result.opencodex.linkedProviders=await this.autoLinkOpenCodex();result.ai={available:this.bridge({}).getSettings().hasKey,provider:this.settings.provider};this.settings.integrations=result;await this.saveData(this.settings);for(const leaf of this.app.workspace.getLeavesOfType(HOME))leaf.view.home?.refresh().catch(console.error);return result;})();this.connectionProbe=task;try{return await task;}finally{this.connectionProbe=null;}
   }
   async handleProtocol(params){
     const action=params.action||'';if(params.vault&&params.vault!==this.app.vault.getName()){const paths=require('node:path'),target=paths.isAbsolute(params.vault)?paths.resolve(params.vault):'',base=paths.resolve(this.app.vault.adapter.getBasePath());if(!target||(process.platform==='win32'?target.toLowerCase()!==base.toLowerCase():target!==base))return;}
