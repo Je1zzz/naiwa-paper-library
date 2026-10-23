@@ -1,10 +1,12 @@
 # 安装奶蛙
 
+[实机验收记录](INSTALL-ACCEPTANCE.md) · [新电脑迁移与开发](NEW-COMPUTER.md)
+
 ## Windows：下载后双击安装
 
 1. 下载仓库的源码 ZIP 并完整解压。保留 `install.cmd`、`tools/`、`plugin/` 和 `zotero-addon/` 的相对位置，不要在 ZIP 预览窗口直接运行。解压位置应在目标 Obsidian 仓库之外。
 2. 双击根目录 `install.cmd`。安装器列出 `%APPDATA%/obsidian/obsidian.json` 中已注册且仍存在的 vault；输入序号选择。也可输入完整的本地目录路径，或输入 `B` 打开目录选择器。空输入取消。
-3. 打开所选 vault，在 Obsidian 中允许第三方插件并启用 **Paper Library · 文献阅读**。已运行的插件需要你自行重新启用或重启 Obsidian；安装器不会中断当前阅读。
+3. 在 Obsidian 仓库管理器中选择「打开本地仓库」，打开所选目录。首次打开时，在确认信任代码来源后选择「信任仓库作者并启用插件」，文献首页会自动打开。若已有仓库处于受限模式，需在设置中允许第三方插件。已运行的插件需要你自行重新启用或重启 Obsidian；安装器不会中断当前阅读。
 4. 打开 `文献首页.md`，或在命令面板运行 **Paper Library · 文献阅读：打开文献首页**。如果已有同名首页，安装器保留原内容，不自动加入属性或替换它；可直接使用命令打开插件首页。
 
 安装直接复制仓库内已构建的 `plugin/`，不需要 Node、npm、管理员权限、Release 或先运行构建。如果 Windows 提示来源安全警告，请先确认代码来源；只运行你信任的副本。`install.cmd` 仅为这次 PowerShell 进程使用执行策略参数，不修改系统执行策略。
@@ -35,6 +37,10 @@
 **Zotero 伴侣需要另行手动安装**：在 Zotero 的「工具 → 插件 → 齿轮 → 从文件安装插件」选择仓库的 `zotero-addon/paper-library-zotero.xpi`。安装器不会写 Zotero profile、启用本地 API 或重启 Zotero。不要把 XPI 放进 Obsidian 插件目录。
 
 Zotero 需要已启动并允许本地 API 访问。OpenCodex 需要当前系统账号下已有兼容的 API 供应商配置；插件按需读取凭据，保留已经可用的供应商设置。关联配置不会产生额外免费额度，调用仍使用对应供应商或 Codex 账号的额度。
+
+自动检测会同时关联支持的 OpenCodex API 供应商，即使已经连接 Codex 也不会跳过它们；已有可用的默认供应商和手动选择的模型保持不变。当前自动关联支持 DeepSeek/OpenRouter 的 `openai-chat` 配置；`openai-responses`/OAuth 配置不直接作为 API key 使用。Codex 通道独立使用本机 CLI 登录。
+
+首页显示「已检测」或「已关联」只代表配置或接口准备就绪；模型是否有权限、额度或受服务商限流，需要实际请求验证。新电脑操作见 [迁移与开发说明](NEW-COMPUTER.md)。
 
 自动安装入口目前面向 Windows。其他桌面系统可手动将 `plugin/` 内全部文件复制到目标 vault 的 `.obsidian/plugins/paper-library/`，再在 Obsidian 中启用。
 

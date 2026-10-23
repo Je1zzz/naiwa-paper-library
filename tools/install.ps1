@@ -169,7 +169,8 @@ if (-not $SkipProbes) {
     foreach ($name in @('Zotero', 'codex', 'opencodex')) {
         $command = Get-Command $name -ErrorAction SilentlyContinue | Select-Object -First 1
         $detected = [bool]$command
-        if ($name -eq 'Zotero' -and (Get-Process zotero -ErrorAction SilentlyContinue)) { $detected = $true }
+        $processNames = if ($name -eq 'opencodex') { @('opencodex', 'opencodex-desktop') } else { @($name) }
+        if (Get-Process -Name $processNames -ErrorAction SilentlyContinue) { $detected = $true }
         Write-Host ("Probe {0} executable/running app detected: {1}" -f $name, $detected)
     }
     foreach ($probe in @(@('OpenCodex config', '.opencodex/config.json'), @('Codex account file', '.codex/auth.json'))) {
