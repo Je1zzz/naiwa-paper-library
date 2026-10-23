@@ -31,3 +31,9 @@ test('existing local key, endpoint, model and selection survive automatic discov
 test('no external applications is a usable disconnected state without fabricated readiness',async()=>{
  const {plugin}=fixture({zotero:false});const result=await plugin.detectConnections();assert.equal(result.zotero.available,false);assert.equal(result.opencodex.installed,false);assert.equal(result.codex.loggedIn,false);assert.equal(result.ai.available,false);
 });
+test('migrated Codex readiness is cleared when this computer is signed out, allowing an API fallback',async()=>{
+ const {plugin}=fixture({config});plugin.settings.provider='codex';plugin.settings.codexReady=true;await plugin.detectConnections();assert.equal(plugin.settings.codexReady,false);assert.equal(plugin.settings.provider,'openrouter');
+});
+test('a migrated account path without auth falls back to this computer instead of the old path',()=>{
+ const {plugin}=fixture();plugin.settings.codexHome=path.resolve('old-computer-account');assert.notEqual(plugin.localCodexHome(),plugin.settings.codexHome);
+});

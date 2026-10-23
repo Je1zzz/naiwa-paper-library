@@ -15,6 +15,7 @@ async function createHome(root, bridge) {
   const fileInput=el('input','pl-hidden',undefined,root);fileInput.type='file';fileInput.multiple=true;fileInput.accept='.pdf,application/pdf';
   const importButton=button('导入 PDF',actions,()=>fileInput.click());
   button('Zotero 导入',actions,zoteroDialog);if(bridge.inspectWeb)button('网页导入',actions,()=>WebImport.dialog(root,bridge));button('新建分类',actions,folderDialog);if(bridge.getAppearance)button('外观',actions,()=>Appearance.dialog(root,bridge));
+  if(bridge.getImportSettings)button('导入设置',actions,importSettingsDialog);
   const content=el('section','pl-home-content',undefined,main);
   fileInput.onchange=async()=>{importButton.disabled=true;try{for(const file of fileInput.files)await bridge.importPdf(file.name,await file.arrayBuffer(),folder||'文献');await refresh();}catch(e){bridge.notice(e.message);}finally{fileInput.value='';importButton.disabled=false;}};
   function optionSelect(label,options,value,parent,change){const s=el('select','pl-select',undefined,parent);s.setAttribute('aria-label',label);for(const [key,text]of Object.entries(options)){const o=el('option','',text,s);o.value=key;}s.value=value;s.onchange=()=>Promise.resolve(change(s.value)).catch(e=>bridge.notice(e.message));return s;}
@@ -87,6 +88,21 @@ async function createHome(root, bridge) {
   }
   function dialog(title){const overlay=el('div','pl-modal-overlay',undefined,root),box=el('section','pl-modal',undefined,overlay);box.setAttribute('role','dialog');box.setAttribute('aria-label',title);const header=el('div','pl-modal-heading',undefined,box);el('h3','',title,header);button('×',header,()=>overlay.remove());return{box,close:()=>overlay.remove()};}
   function folderDialog(){const {box,close}=dialog('新建文件夹分类');el('label','pl-field-label','分类名称',box);const field=el('input','pl-input',undefined,box);field.placeholder='例如：肿瘤／宫颈癌';field.setAttribute('aria-label','分类名称');const actions=el('div','pl-modal-actions',undefined,box);button('取消',actions,close);const submit=button('创建分类',actions,async()=>{if(!field.value.trim())return bridge.notice('请输入分类名称');submit.disabled=true;try{await bridge.createCategory(field.value);close();await refresh();}finally{submit.disabled=false;}},'pl-primary');field.addEventListener('keydown',e=>{if(e.key==='Enter')submit.click();if(e.key==='Escape')close();});field.focus();}
+  async function importSettingsDialog(){
+    const settings=bridge.getImportSettings(),{box,close}=dialog('文献导入设置');
+    const label=el('label','pl-import-toggle',undefined,box),enabled=el('input','',undefined,label);enabled.type='checkbox';enabled.checked=settings.alsoSaveToZotero;enabled.setAttribute('aria-label','导入时同时保存到 Zotero');el('span','','导入时同时保存到 Zotero',label);
+    el('p','pl-muted','对之后本地和网页导入的 PDF 生效。先保存到 Obsidian，再向 Zotero 当前选中的可写分类保存一份副本。从 Zotero 导入不会回传。',box);
+    const target=el('p','pl-muted','正在检查 Zotero 保存位置…',box);
+    bridge.getZoteroSaveTarget().then(value=>{target.textContent='当前 Zotero 位置：'+(value.libraryName||'')+' / '+(value.name||'')+(!value.filesEditable||!value.editable?'（不可写）':'');}).catch(()=>{target.textContent='Zotero 暂未连接。保存失败时，Obsidian PDF 仍会保留；在此窗口重试。';});
+    for(const [paper,result]of Object.entries(settings.results).filter(([,r])=>r.status!=='saved')){
+      const item=el('div','pl-import-retry',undefined,box);el('strong','',paper.split('/').at(-1),item);el('p','pl-muted',result.message||'保存结果待确认，请先检查 Zotero。',item);
+      const uncertain=['uploading','uncertain'].includes(result.status);let confirm;
+      if(uncertain){const row=el('label','pl-import-toggle',undefined,item);confirm=el('input','',undefined,row);confirm.type='checkbox';el('span','','我已在 Zotero 检查，确认尚未保存此 PDF',row);}
+      const retry=button('重新保存到 Zotero',item,async()=>{retry.disabled=true;try{await bridge.exportToZotero(paper,{retryUncertain:Boolean(confirm?.checked)});close();await refresh();bridge.notice('PDF 已保存到 Zotero');}finally{retry.disabled=uncertain&&!confirm?.checked;}});
+      if(uncertain){retry.disabled=true;confirm.onchange=()=>retry.disabled=!confirm.checked;}
+    }
+    const actions=el('div','pl-modal-actions',undefined,box);button('取消',actions,close);button('保存设置',actions,async()=>{await bridge.saveImportSettings({alsoSaveToZotero:enabled.checked});close();},'pl-primary');
+  }
   async function zoteroDialog(){const {box,close}=dialog('从 Zotero 选择 PDF'),search=el('input','pl-input',undefined,box),results=el('div','pl-zotero-results',undefined,box);search.placeholder='论文标题、作者或关键词';search.setAttribute('aria-label','搜索 Zotero');button('搜索',box,async()=>{results.textContent='搜索中…';const items=await bridge.searchZotero(search.value);results.replaceChildren();for(const item of items.filter(i=>!['attachment','note'].includes(i.data.itemType)))button(item.data.title||item.key,results,async()=>{const attachments=await bridge.listZoteroPdfs(item);results.replaceChildren();el('p','','勾选要导入的 PDF：',results);const choices=attachments.map(a=>{const label=el('label','pl-attachment-choice',undefined,results),check=el('input','',undefined,label);check.type='checkbox';check.checked=attachments.length===1;el('span','',a.data.title||a.data.filename||a.key,label);return{a,check};});if(!choices.length)return el('p','','该条目没有可读取的本地 PDF。',results);button('导入选中的 PDF',results,async()=>{const selected=choices.filter(c=>c.check.checked);if(!selected.length)return bridge.notice('请选择至少一个 PDF');for(const{a}of selected)await bridge.importZotero(item,a.key);close();await refresh();},'pl-primary');},'pl-zotero-result');if(!items.length)results.textContent='没有找到匹配文献。';});search.focus();}
   await refresh();
   return {refresh,destroy(){closed=true;root.replaceChildren();}};

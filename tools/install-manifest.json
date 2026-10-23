@@ -5,7 +5,7 @@
     "files":  [
                   {
                       "path":  "main.js",
-                      "sha256":  "7488abfaf876acf8a8b36fd00cd772f4c16a5d9be6c0ef7f2ef34bc2c3dea2dc"
+                      "sha256":  "a50b92ddcc4230c8ec2ab4e098ba18a39170ad4e1a24ca27786dac239c5cc889"
                   },
                   {
                       "path":  "manifest.json",
@@ -13,7 +13,7 @@
                   },
                   {
                       "path":  "styles.css",
-                      "sha256":  "c6594d29f346d447b9596f6812f915109982f92a9b7a4568966a38c74b57373b"
+                      "sha256":  "a84df5e030eceed3a999513c9f31e0113a072be43faca0a099e12caf101b55bd"
                   },
                   {
                       "path":  "assets/reading-icon.svg",

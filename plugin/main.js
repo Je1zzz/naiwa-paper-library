@@ -1989,6 +1989,7 @@ var require_home = __commonJS({
       if (bridge.inspectWeb) button("网页导入", actions, () => WebImport2.dialog(root, bridge));
       button("新建分类", actions, folderDialog);
       if (bridge.getAppearance) button("外观", actions, () => Appearance2.dialog(root, bridge));
+      if (bridge.getImportSettings) button("导入设置", actions, importSettingsDialog);
       const content = el("section", "pl-home-content", void 0, main);
       fileInput.onchange = async () => {
         importButton.disabled = true;
@@ -2291,6 +2292,55 @@ var require_home = __commonJS({
           if (e.key === "Escape") close();
         });
         field.focus();
+      }
+      async function importSettingsDialog() {
+        const settings = bridge.getImportSettings(), { box, close } = dialog("文献导入设置");
+        const label2 = el("label", "pl-import-toggle", void 0, box), enabled = el("input", "", void 0, label2);
+        enabled.type = "checkbox";
+        enabled.checked = settings.alsoSaveToZotero;
+        enabled.setAttribute("aria-label", "导入时同时保存到 Zotero");
+        el("span", "", "导入时同时保存到 Zotero", label2);
+        el("p", "pl-muted", "对之后本地和网页导入的 PDF 生效。先保存到 Obsidian，再向 Zotero 当前选中的可写分类保存一份副本。从 Zotero 导入不会回传。", box);
+        const target = el("p", "pl-muted", "正在检查 Zotero 保存位置…", box);
+        bridge.getZoteroSaveTarget().then((value) => {
+          target.textContent = "当前 Zotero 位置：" + (value.libraryName || "") + " / " + (value.name || "") + (!value.filesEditable || !value.editable ? "（不可写）" : "");
+        }).catch(() => {
+          target.textContent = "Zotero 暂未连接。保存失败时，Obsidian PDF 仍会保留；在此窗口重试。";
+        });
+        for (const [paper, result] of Object.entries(settings.results).filter(([, r]) => r.status !== "saved")) {
+          const item = el("div", "pl-import-retry", void 0, box);
+          el("strong", "", paper.split("/").at(-1), item);
+          el("p", "pl-muted", result.message || "保存结果待确认，请先检查 Zotero。", item);
+          const uncertain = ["uploading", "uncertain"].includes(result.status);
+          let confirm;
+          if (uncertain) {
+            const row = el("label", "pl-import-toggle", void 0, item);
+            confirm = el("input", "", void 0, row);
+            confirm.type = "checkbox";
+            el("span", "", "我已在 Zotero 检查，确认尚未保存此 PDF", row);
+          }
+          const retry = button("重新保存到 Zotero", item, async () => {
+            retry.disabled = true;
+            try {
+              await bridge.exportToZotero(paper, { retryUncertain: Boolean(confirm?.checked) });
+              close();
+              await refresh();
+              bridge.notice("PDF 已保存到 Zotero");
+            } finally {
+              retry.disabled = uncertain && !confirm?.checked;
+            }
+          });
+          if (uncertain) {
+            retry.disabled = true;
+            confirm.onchange = () => retry.disabled = !confirm.checked;
+          }
+        }
+        const actions2 = el("div", "pl-modal-actions", void 0, box);
+        button("取消", actions2, close);
+        button("保存设置", actions2, async () => {
+          await bridge.saveImportSettings({ alsoSaveToZotero: enabled.checked });
+          close();
+        }, "pl-primary");
       }
       async function zoteroDialog() {
         const { box, close } = dialog("从 Zotero 选择 PDF"), search = el("input", "pl-input", void 0, box), results = el("div", "pl-zotero-results", void 0, box);
@@ -3187,6 +3237,97 @@ var require_clipboard = __commonJS({
   }
 });
 
+// src/zotero-export.js
+var require_zotero_export = __commonJS({
+  "src/zotero-export.js"(exports2, module2) {
+    var http = require("node:http");
+    var { createHash, randomUUID } = require("node:crypto");
+    function connector(endpoint, body = {}, headers = {}) {
+      const bytes = Buffer.isBuffer(body) ? body : Buffer.from(JSON.stringify(body));
+      return new Promise((resolve, reject) => {
+        const request = http.request({ hostname: "127.0.0.1", port: 23119, path: "/connector/" + endpoint, method: "POST", headers: { "Content-Type": "application/json", "X-Zotero-Connector-API-Version": "3", "Content-Length": bytes.length, ...headers } }, (response) => {
+          let text = "";
+          response.setEncoding("utf8");
+          response.on("data", (part) => text += part);
+          response.on("error", reject);
+          response.on("end", () => {
+            if (response.statusCode < 200 || response.statusCode >= 300) {
+              const error = Error("Zotero Connector 返回 " + response.statusCode);
+              error.safeToRetry = [400, 403, 404, 415].includes(response.statusCode);
+              return reject(error);
+            }
+            try {
+              resolve(text ? JSON.parse(text) : {});
+            } catch {
+              reject(Error("Zotero 返回格式不正确，请先检查是否已经保存。"));
+            }
+          });
+        });
+        request.setTimeout(6e4, () => request.destroy(Error("Zotero 保存超时，请先检查是否已经保存。")));
+        request.on("error", (error) => {
+          error.safeToRetry = error.code === "ECONNREFUSED";
+          reject(error);
+        });
+        request.end(bytes);
+      });
+    }
+    function sourceURL(vault, paper) {
+      return "obsidian://paper-library/" + encodeURIComponent(paper.split("/").at(-1)) + "?vault=" + encodeURIComponent(vault) + "&paper=" + encodeURIComponent(paper);
+    }
+    async function savePdf(plugin, paper, { send = connector, retryUncertain = false } = {}) {
+      const file = plugin.app.vault.getAbstractFileByPath(paper);
+      if (!file || file.extension.toLowerCase() !== "pdf") throw Error("请选择有效的 PDF。");
+      const bytes = Buffer.from(await plugin.app.vault.readBinary(file)), hash = createHash("sha256").update(bytes).digest("hex");
+      plugin.zoteroExportJobs ||= /* @__PURE__ */ new Map();
+      if (plugin.zoteroExportJobs.has(hash)) return plugin.zoteroExportJobs.get(hash);
+      const task = (async () => {
+        plugin.settings.zoteroExports ||= {};
+        plugin.settings.zoteroExportResults ||= {};
+        let record = plugin.settings.zoteroExports[hash], started = false;
+        if (record?.status === "saved") {
+          plugin.settings.zoteroExportResults[paper] = { hash, status: "saved" };
+          await plugin.saveData(plugin.settings);
+          return record;
+        }
+        if (record && ["uploading", "uncertain"].includes(record.status) && !retryUncertain) throw Error("上次 Zotero 保存结果待确认。请先在 Zotero 检查；确认未保存后，才能重新尝试。");
+        try {
+          const target = await send("getSelectedCollection", { switchToReadableLibrary: false });
+          if (!target.editable || !target.libraryEditable || !target.filesEditable) throw Error("请先在 Zotero 选中可写且允许保存附件的文库或分类。");
+          record = { status: "uploading", sessionID: randomUUID(), url: sourceURL(plugin.app.vault.getName(), paper), paper, target: target.name || target.libraryName || "", startedAt: (/* @__PURE__ */ new Date()).toISOString() };
+          plugin.settings.zoteroExports[hash] = record;
+          plugin.settings.zoteroExportResults[paper] = { hash, status: "uploading" };
+          await plugin.saveData(plugin.settings);
+          started = true;
+          const metadata = JSON.stringify({ sessionID: record.sessionID, url: record.url, title: file.basename }).replace(/[^\x20-\x7E]/g, (char) => "\\u" + char.charCodeAt(0).toString(16).padStart(4, "0"));
+          const result = await send("saveStandaloneAttachment", bytes, { "Content-Type": "application/pdf", "X-Metadata": metadata });
+          record.status = "saved";
+          record.canRecognize = Boolean(result.canRecognize);
+          record.savedAt = (/* @__PURE__ */ new Date()).toISOString();
+          plugin.settings.zoteroExportResults[paper] = { hash, status: "saved" };
+          await plugin.saveData(plugin.settings);
+          return record;
+        } catch (error) {
+          const status = started && !error.safeToRetry ? "uncertain" : "failed";
+          if (record && record.status !== "saved") {
+            record.status = status;
+            record.message = error.message;
+          }
+          plugin.settings.zoteroExportResults[paper] = { hash, status, message: error.message };
+          await plugin.saveData(plugin.settings);
+          throw error;
+        }
+      })();
+      plugin.zoteroExportJobs.set(hash, task);
+      try {
+        return await task;
+      } finally {
+        plugin.zoteroExportJobs.delete(hash);
+      }
+    }
+    module2.exports = { connector, sourceURL, savePdf };
+  }
+});
+
 // src/note-markers.js
 var require_note_markers = __commonJS({
   "src/note-markers.js"(exports2, module2) {
@@ -3235,6 +3376,7 @@ var Enrichment = require_enrichment();
 var Completion = require_completion();
 var FileClipboard = require_clipboard();
 var NoteFormat = require_note_format();
+var ZoteroExport = require_zotero_export();
 var { readFileSync } = require("node:fs");
 var { join } = require("node:path");
 var { homedir } = require("node:os");
@@ -3531,10 +3673,12 @@ module.exports = class PaperLibrary extends Plugin {
         }
       })(), (async () => {
         try {
-          const home = this.settings.codexHome || process.env.CODEX_HOME || join(homedir(), ".codex"), status = await Codex.status(home);
+          const status = await Codex.status(this.localCodexHome());
           result.codex = { installed: status.installed, loggedIn: status.loggedIn };
+          this.settings.codexReady = Boolean(status.loggedIn);
           if (status.loggedIn) await this.connectCodex(!this.bridge({}).getSettings().hasKey);
         } catch {
+          this.settings.codexReady = false;
         }
       })()]);
       result.opencodex.linkedProviders = await this.autoLinkOpenCodex();
@@ -3690,10 +3834,11 @@ module.exports = class PaperLibrary extends Plugin {
         await this.app.vault.process(file, (source) => Notebook.renamePaper(source, oldPath, path, this.settings.annotationRecords));
       }
     }
-    for (const name of ["metadata", "reading", "paperLabels", "paperRatings", "paperProperties", "paperRatingValues", "paperStatusValues", "firstReads"]) if (Object.hasOwn(this.settings[name] || {}, oldPath)) {
+    for (const name of ["metadata", "reading", "paperLabels", "paperRatings", "paperProperties", "paperRatingValues", "paperStatusValues", "firstReads", "zoteroExportResults"]) if (Object.hasOwn(this.settings[name] || {}, oldPath)) {
       this.settings[name][path] = this.settings[name][oldPath];
       delete this.settings[name][oldPath];
     }
+    for (const record of Object.values(this.settings.zoteroExports || {})) if (record.paper === oldPath) record.paper = path;
     for (const [key, value] of Object.entries(this.settings.webSources || {})) if (value === oldPath) this.settings.webSources[key] = path;
     for (const [key, value] of Object.entries(this.settings.zoteroPapers || {})) if (value === oldPath) this.settings.zoteroPapers[key] = path;
     for (const [date, paths] of Object.entries(this.settings.activity || {})) this.settings.activity[date] = [...new Set(paths.map((p) => p === oldPath ? path : p))];
@@ -4066,8 +4211,12 @@ module.exports = class PaperLibrary extends Plugin {
       editor.focus();
     }
   }
+  localCodexHome() {
+    const saved = this.settings.codexHome;
+    return saved && require("node:fs").existsSync(join(saved, "auth.json")) ? saved : process.env.CODEX_HOME || join(homedir(), ".codex");
+  }
   async connectCodex(select = true) {
-    const home = this.settings.codexHome || process.env.CODEX_HOME || join(homedir(), ".codex");
+    const home = this.localCodexHome();
     const status = await Codex.status(home);
     this.settings.codexHome = home;
     this.settings.codexReady = status.loggedIn;
@@ -4092,7 +4241,7 @@ module.exports = class PaperLibrary extends Plugin {
         if (!(file instanceof TFile)) throw new Error("文献已移动或不存在，请从文献库重新选择。");
         return this.app.vault.readBinary(file);
       },
-      importPdf: async (name, bytes, folder = "文献") => {
+      importPdf: async (name, bytes, folder = "文献", options = {}) => {
         if (new TextDecoder().decode(new Uint8Array(bytes).slice(0, 1024)).indexOf("%PDF-") < 0) throw new Error("文件不是有效的 PDF。");
         folder = this.categoryPath(folder);
         await this.ensureFolder(folder);
@@ -4100,6 +4249,13 @@ module.exports = class PaperLibrary extends Plugin {
         let path = `${folder}/${basename}.pdf`, n = 1;
         while (this.app.vault.getAbstractFileByPath(path)) path = `${folder}/${basename} (${n++}).pdf`;
         await this.app.vault.createBinary(path, bytes);
+        if (this.settings.alsoSaveToZotero && !options.fromZotero) {
+          try {
+            await ZoteroExport.savePdf(this, path);
+          } catch (error) {
+            new Notice("PDF 已保存在 Obsidian；Zotero 保存未完成：" + error.message, 1e4);
+          }
+        }
         return path;
       },
       readNotes: async (path) => (await this.readNotes(path)).filter((n) => !this.settings.hiddenNotes?.includes(n.id)),
@@ -4128,6 +4284,13 @@ module.exports = class PaperLibrary extends Plugin {
       },
       getIntegrations: () => this.settings.integrations || {},
       detectConnections: () => this.detectConnections(),
+      getImportSettings: () => ({ alsoSaveToZotero: Boolean(this.settings.alsoSaveToZotero), results: this.settings.zoteroExportResults || {} }),
+      saveImportSettings: async (value) => {
+        this.settings.alsoSaveToZotero = Boolean(value.alsoSaveToZotero);
+        await this.saveData(this.settings);
+      },
+      getZoteroSaveTarget: () => ZoteroExport.connector("getSelectedCollection", { switchToReadableLibrary: false }),
+      exportToZotero: (paper, options) => ZoteroExport.savePdf(this, paper, options),
       openHome: () => this.activateHome(),
       openPaper: async (path, property) => {
         const page = this.settings.reading?.[path]?.lastPage;
@@ -4258,11 +4421,15 @@ module.exports = class PaperLibrary extends Plugin {
         const url = await this.zotero(`items/${attachment.key}/file/view/url`, true, item._scope || "users/0");
         if (!url?.startsWith("file:")) throw new Error("Zotero 未返回本地 PDF 路径。");
         const bytes = readFileSync(require("node:url").fileURLToPath(url));
-        const paper = await this.bridge(view).importPdf(item.data.title + (children.length > 1 ? " · " + (attachment.data.title || attachment.data.filename || attachment.key) : "") + ".pdf", bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength));
+        const hash = require("node:crypto").createHash("sha256").update(bytes).digest("hex"), known = this.settings.zoteroExports?.[hash]?.paper, knownFile = known && this.app.vault.getAbstractFileByPath(known);
+        const sameFile = knownFile && knownFile.extension === "pdf" && require("node:crypto").createHash("sha256").update(Buffer.from(await this.app.vault.readBinary(knownFile))).digest("hex") === hash;
+        const paper = sameFile ? known : await this.bridge(view).importPdf(item.data.title + (children.length > 1 ? " · " + (attachment.data.title || attachment.data.filename || attachment.key) : "") + ".pdf", bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength), "文献", { fromZotero: true });
         this.settings.metadata ||= {};
         this.settings.metadata[paper] = { title: item.data.title, authors: (item.data.creators || []).filter((c) => c.creatorType === "author").map((c) => [c.firstName, c.lastName].filter(Boolean).join(" ") || c.name).join(", "), year: item.data.date?.match(/\b(?:19|20)\d{2}\b/)?.[0] || "", venue: item.data.publicationTitle || item.data.conferenceName || item.data.proceedingsTitle || "", tags: (item.data.tags || []).map((t) => t.tag).filter(Boolean), firstAuthor: item.data.creators?.[0] ? [item.data.creators[0].firstName, item.data.creators[0].lastName].filter(Boolean).join(" ") || item.data.creators[0].name : null };
         this.settings.zoteroPapers[identity] = paper;
         await this.linkZotero(paper, item);
+        this.settings.zoteroExports ||= {};
+        this.settings.zoteroExports[hash] ||= { status: "saved", source: "zotero", paper, itemKey: item.key, attachmentKey: attachment.key };
         await this.saveData(this.settings);
         return paper;
       },

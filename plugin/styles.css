@@ -451,3 +451,6 @@
 .pl-side .pl-tabs { gap:12px; padding-right:12px; }
 .paper-library-note .metadata-container,
 .paper-library-note .frontmatter-container { display:none!important; }
+.pl-import-toggle { display:flex; align-items:center; gap:10px; margin:12px 0; }
+.pl .pl-import-toggle input[type="checkbox"] { width:16px; height:16px; min-height:0; flex:0 0 auto; margin:0; }
+.pl-import-retry { padding:12px 0; border-top:1px solid var(--background-modifier-border); }
