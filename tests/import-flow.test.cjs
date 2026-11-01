@@ -34,3 +34,16 @@ test('returning a previously exported PDF reuses the original local paper withou
 test('website PDF import uses the same opt-in export path',async()=>{
  const f=fixture();f.plugin.settings.alsoSaveToZotero=true;const url='https://example.com/paper.pdf',paper=await f.plugin.importWeb({url,title:'web',directBytes:f.bytes},url,'文献');assert.ok(f.files.has(paper));assert.deepEqual(f.exports,[paper]);
 });
+
+
+test('Zotero import respects the selected category',async()=>{
+ const f=fixture();const paper=await f.plugin.bridge({}).importZotero(f.attachment,undefined,'文献/脑科学');assert.equal(paper,'文献/脑科学/fixture.pdf');assert.ok(f.files.has(paper));
+});
+
+test('delete moves only the selected PDF to the vault trash and keeps annotation records',async()=>{
+ const f=fixture(),paper=await f.plugin.bridge({}).importPdf('trash-me.pdf',f.bytes),other=await f.plugin.bridge({}).importPdf('keep.pdf',f.bytes),calls=[];
+ f.plugin.settings.notePages={[paper]:'阅读笔记/trash-me.md'};f.plugin.settings.annotationRecords={id:{paper}};
+ f.plugin.app.vault.trash=async(file,system)=>{calls.push([file.path,system]);f.files.delete(file.path);};
+ await f.plugin.bridge({}).deletePaper(paper);assert.deepEqual(calls,[[paper,false]]);assert.ok(f.files.has(other));assert.equal(f.plugin.settings.notePages[paper],'阅读笔记/trash-me.md');assert.equal(f.plugin.settings.annotationRecords.id.paper,paper);
+ await assert.rejects(()=>f.plugin.bridge({}).deletePaper(paper),/文献不存在/);
+});

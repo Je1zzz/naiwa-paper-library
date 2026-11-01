@@ -100,7 +100,7 @@ $indexPath = Join-Path $package 'tools/install-manifest.json'
 Assert-File $indexPath
 $index = [IO.File]::ReadAllText($indexPath) | ConvertFrom-Json
 if ($index.schema -ne 1 -or $index.pluginId -ne 'paper-library' -or -not $index.files) { throw 'Invalid tools/install-manifest.json.' }
-$allowed = @('main.js', 'manifest.json', 'styles.css', 'assets/reading-icon.svg', 'assets/reading-frog.png')
+$allowed = @('main.js', 'manifest.json', 'styles.css', 'assets/reading-icon.svg', 'assets/reading-frog.png', 'assets/highlight-icon.png', 'assets/underline-icon.png', 'assets/meadow-wallpaper.png')
 $seen = @{}; $plan = @()
 foreach ($entry in $index.files) {
     $relative = [string]$entry.path

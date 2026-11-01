@@ -5,9 +5,7 @@ const Core = require('./core');
 const Notebook = require('./notebook');
 const Codex = require('./codex');
 const Metadata = require('./metadata');
-const VenueMetrics = require('./venue-metrics');
 const WebImport = require('./web-import');
-const Appearance = require('./appearance');
 const Models = require('./models');
 const Enrichment = require('./enrichment');
 const Completion = require('./completion');
@@ -32,7 +30,7 @@ class PaperView extends ItemView {
   }
   async initializeReader() {
     this.contentEl.empty();
-    this.contentEl.addClass('paper-library-host');Appearance.apply(this.contentEl,this.plugin.settings.appearance,path=>this.app.vault.adapter.getResourcePath(path));
+    this.contentEl.addClass('paper-library-host');
     try {
       this.reader = await createReader(this.contentEl, this.plugin.bridge(this), await loadPdfJs(), Core);
       if (this.pendingPath) await this.reader.openPaper(this.pendingPath);
@@ -51,7 +49,7 @@ class HomeView extends ItemView {
   getViewType(){return HOME;}
   getDisplayText(){return '文献首页';}
   getIcon(){return 'library';}
-  async onOpen(){this.homeReady=(async()=>{this.contentEl.empty();this.contentEl.addClass('paper-library-host');this.home=await createHome(this.contentEl,this.plugin.bridge(this));Appearance.apply(this.contentEl,this.plugin.settings.appearance,path=>this.app.vault.adapter.getResourcePath(path));})();await this.homeReady;}
+  async onOpen(){this.homeReady=(async()=>{this.contentEl.empty();this.contentEl.addClass('paper-library-host');this.home=await createHome(this.contentEl,this.plugin.bridge(this));})();await this.homeReady;}
   async onClose(){this.home?.destroy();}
 }
 
@@ -60,7 +58,7 @@ module.exports = class PaperLibrary extends Plugin {
     this.settings = Object.assign({ provider: 'deepseek', models: { deepseek: Core.PROVIDERS.deepseek.model, openrouter: Core.PROVIDERS.openrouter.model } }, await this.loadData());
     this.noteWrites = new Map();this.webImportJobs=new Map();
     this.renameJobs = new Map();
-    this.authorJobs=new Map();this.authorQueue=Promise.resolve();this.venueJobs=new Map();this.metadataJobs = new Map();this.metadataQueue=Promise.resolve();
+    this.authorJobs=new Map();this.authorQueue=Promise.resolve();this.metadataJobs = new Map();this.metadataQueue=Promise.resolve();
     this.settings.models ||= {};
     this.settings.reasoning ||= 'default';
     await this.migrateNotePages();
@@ -117,7 +115,15 @@ module.exports = class PaperLibrary extends Plugin {
   async migrateNotePages(){
     this.settings.annotationRecords||={};this.settings.cleanNotePages||={};
     for(const [paper,path]of Object.entries(this.settings.notePages||{})){
-      if(this.settings.cleanNotePages[path]===1)continue;
+      if(this.settings.cleanNotePages[path]===3)continue;
+      if(this.settings.cleanNotePages[path]>=1){
+        const file=this.app.vault.getAbstractFileByPath(path);if(!file)continue;
+        const original=await this.app.vault.read(file),updated=Notebook.group(original,this.settings.annotationRecords);
+        const directory=this.manifest.dir+'/note-format-backups';if(!await this.app.vault.adapter.exists(directory))await this.app.vault.adapter.mkdir(directory);
+        await this.app.vault.adapter.write(directory+'/'+crypto.randomUUID()+'.md',original);
+        await this.app.vault.process(file,current=>{if(current!==original)throw Error('笔记正在编辑，请重载后重试格式更新');return updated;});
+        this.settings.cleanNotePages[path]=3;await this.saveData(this.settings);continue;
+      }
       const file=this.app.vault.getAbstractFileByPath(path);if(!file||file.extension!=='md')continue;
       const original=await this.app.vault.read(file),directory=this.manifest.dir+'/note-format-backups';
       if(!await this.app.vault.adapter.exists(directory))await this.app.vault.adapter.mkdir(directory);
@@ -134,7 +140,7 @@ module.exports = class PaperLibrary extends Plugin {
         const classes=Array.isArray(fm.cssclasses)?fm.cssclasses:typeof fm.cssclasses==='string'?fm.cssclasses.split(/\s+/):[];fm.cssclasses=[...new Set([...classes,'paper-library-note'])];
       });
       await this.app.vault.process(file,source=>Notebook.group(NoteFormat.cleanProse(source,paper),this.settings.annotationRecords));
-      this.settings.cleanNotePages[path]=1;await this.saveData(this.settings);
+      this.settings.cleanNotePages[path]=3;await this.saveData(this.settings);
     }
   }
   async activateHome(){
@@ -144,9 +150,8 @@ module.exports = class PaperLibrary extends Plugin {
   }
   async ensureHomePage(){
     let path='文献首页.md';const existing=this.app.vault.getAbstractFileByPath(path);if(existing&&!/^paper-library-home:\s*true\s*$/m.test(await this.app.vault.read(existing))){path='Paper Library 首页.md';let n=2;while(this.app.vault.getAbstractFileByPath(path))path='Paper Library 首页 ('+(n++)+').md';}this.homeFilePath=path;await this.ensureFolder('文献');await this.ensureFolder(NOTES);
-    if(!this.app.vault.getAbstractFileByPath(path))await this.app.vault.create(path,'---\npaper-library-home: true\n---\n\n# 文献首页\n\n[打开文献管理首页](obsidian://paper-library?vault='+encodeURIComponent(this.app.vault.getName())+'&action=home)\n\n管理文献、Label、阅读状态与文章笔记。\n');
+    if(!this.app.vault.getAbstractFileByPath(path))await this.app.vault.create(path,'---\npaper-library-home: true\n---\n\n# 文献首页\n\n[打开文献管理首页](obsidian://paper-library?vault='+encodeURIComponent(this.app.vault.getName())+'&action=home)\n\n管理文献、标签、阅读状态与文章笔记。\n');
   }
-  applyAppearance(value){for(const type of [HOME,VIEW])for(const leaf of this.app.workspace.getLeavesOfType(type))Appearance.apply(leaf.view.contentEl,value,path=>this.app.vault.adapter.getResourcePath(path));}
   linkedOpenCodexProvider(provider){
     if(!this.settings.openCodexLinkedProviders?.includes(provider))return null;try{const config=JSON.parse(readFileSync(join(homedir(),'.opencodex','config.json'),'utf8')),entry=config.providers?.[provider];return entry?.adapter==='openai-chat'?entry:null;}catch{return null;}
   }
@@ -221,16 +226,15 @@ module.exports = class PaperLibrary extends Plugin {
     }
     const papers=this.app.vault.getFiles().filter(f=>f.extension.toLowerCase()==='pdf').map(file=>{
       const metadata=this.settings.metadata?.[file.path]||{},fm=frontmatters.get(file.path)||{};
-      const labelSource=fm.labels??this.settings.paperLabels?.[file.path]??metadata.tags??fm.tags??[];
+      const labelSource=fm.labels??this.settings.paperLabels?.[file.path]??[];
       const labels=[...new Set((Array.isArray(labelSource)?labelSource:String(labelSource).split(/[,，;；]/)).map(t=>String(t).trim().replace(/^#/, '')).filter(Boolean))];
-      return{path:file.path,folder:file.parent?.path||'',...metadata,venueMetrics:this.settings.venueMetrics?.[metadata.venue||fm.venue]?.tags||[],venueLookup:this.settings.venueMetrics?.[metadata.venue||fm.venue],title:fm.title||metadata.title||file.basename,authors:fm.authors||metadata.authors||metadata.firstAuthor||fm['first-author']||'',year:fm.year||metadata.year||'',venue:fm.venue||metadata.venue||'',ratingValues:fm['rating-options']||this.settings.paperRatingValues?.[file.path]||[],statusValues:fm['reading-status-options']||this.settings.paperStatusValues?.[file.path]||[this.settings.reading?.[file.path]?.status||'unread'],properties:fm['custom-properties']||this.settings.paperProperties?.[file.path]||{},labels,rating:this.settings.paperRatings?.[file.path]||0,size:file.stat.size,added:file.stat.ctime,status:'unread',...this.settings.reading?.[file.path],annotationCount:counts.get(file.path)||0};
+      return{path:file.path,folder:file.parent?.path||'',...metadata,title:fm.title||metadata.title||file.basename,authors:fm.authors||metadata.authors||metadata.firstAuthor||fm['first-author']||'',year:fm.year||metadata.year||'',venue:fm.venue||metadata.venue||'',ratingValues:fm['rating-options']||this.settings.paperRatingValues?.[file.path]||[],statusValues:fm['reading-status-options']||this.settings.paperStatusValues?.[file.path]||[this.settings.reading?.[file.path]?.status||'unread'],properties:fm['custom-properties']||this.settings.paperProperties?.[file.path]||{},labels,rating:this.settings.paperRatings?.[file.path]||0,size:file.stat.size,added:file.stat.ctime,status:'unread',...this.settings.reading?.[file.path],annotationCount:counts.get(file.path)||0};
     });
     const folders=[...new Set(['文献',...this.app.vault.getAllLoadedFiles().filter(f=>f.children&&(f.path==='文献'||f.path.startsWith('文献/'))).map(f=>f.path),...papers.map(p=>p.folder)])].sort();
     const notesToPapers=new Map(Object.entries(this.settings.notePages||{}).map(([paper,note])=>[note,paper])),links=[];
     for(const[from,targets]of Object.entries(this.app.metadataCache.resolvedLinks||{})){const a=notesToPapers.get(from);if(!a)continue;for(const target of Object.keys(targets)){const b=notesToPapers.get(target)||papers.find(p=>p.path===target)?.path;if(b&&b!==a)links.push([a,b]);}}
     for(const paper of papers)if((!paper.year||!paper.venue)&&Date.now()-Date.parse(paper.lookupAt||'1970-01-01')>86400000)this.queueMetadata(paper.path);
     if(this.bridge({}).getSettings().hasKey)for(const paper of papers)if(!paper.correspondingAffiliationZh&&Date.now()-Date.parse(paper.authorLookupAt||'1970-01-01')>86400000)this.queueAuthors(paper.path);
-    if(this.settings.codexReady)for(const paper of papers)if(paper.venue&&(!this.settings.venueMetrics?.[paper.venue]||Date.now()-Date.parse(this.settings.venueMetrics[paper.venue].checkedAt)>7*86400000)&&!this.venueJobs.has(paper.venue))this.searchVenueMetrics(paper.path).catch(e=>console.warn('[Paper Library venue]',e.message));
     return{papers,folders,activity:this.settings.activity||{},links,labelColors:this.settings.labelColors||{},statusOptions:this.statusOptions(),ratingOptions:this.settings.ratingOptions||[],customProperties:this.settings.customProperties||[]};
   }
   queueMetadata(paper){
@@ -282,17 +286,6 @@ module.exports = class PaperLibrary extends Plugin {
     const direct=await requestUrl({url,throw:false});if(direct.status!==200)throw new Error('无法核验指标来源');
     if(new TextDecoder().decode(new Uint8Array(direct.arrayBuffer).slice(0,5))==='%PDF-'){const pdfjs=await loadPdfJs(),pdf=await pdfjs.getDocument({data:new Uint8Array(direct.arrayBuffer),isEvalSupported:false}).promise;try{const pages=[];for(let n=1;n<=pdf.numPages;n++)pages.push((await(await pdf.getPage(n)).getTextContent()).items.map(i=>i.str||'').join(' '));return pages.join('\n');}finally{await pdf.destroy();}}
     return direct.text.replace(/<[^>]+>/g,' ').slice(0,400000);
-  }
-  async searchVenueMetrics(paper,force=false){
-    const metadata=this.settings.metadata?.[paper]||{},venue=metadata.venue;if(!venue)throw new Error('请先补全文献的期刊或会议名称');
-    const cache=this.settings.venueMetrics?.[venue];if(!force&&cache?.status==='verified'&&cache.tags?.length&&Date.now()-Date.parse(cache.checkedAt)<7*86400000)return cache;
-    if(this.venueJobs.has(venue))return this.venueJobs.get(venue);
-    const task=(async()=>{const bridge=this.bridge({}),settings=bridge.getSettings(),model=this.settings.models.codex||'gpt-6.1-sol';
-      const tags=await VenueMetrics.lookup(venue,{research:settings.provider==='codex'&&this.settings.codexReady?prompt=>Codex.research({...settings,model,reasoning:'low'},prompt):undefined,chat:settings.hasKey?messages=>bridge.chat(settings,messages):undefined,get:async url=>{const r=await requestUrl({url,throw:false});if(r.status!==200)throw Error('公开书目检索失败（'+r.status+'）');return r.json;},read:url=>this.readMetricSource(url),search:query=>Enrichment.publicSearch(query,async url=>{const r=await requestUrl({url,throw:false});if(r.status!==200)throw Error('公开检索失败（'+r.status+'）');return r.text;})});
-      const result={tags,checkedAt:new Date().toISOString(),status:tags.length?'verified':'unavailable'};this.settings.venueMetrics||={};this.settings.venueMetrics[venue]=result;await this.saveData(this.settings);
-
-      for(const leaf of this.app.workspace.getLeavesOfType(HOME))leaf.view.home?.refresh().catch(console.error);return result;})();
-    this.venueJobs.set(venue,task);try{return await task;}catch(e){this.settings.venueMetrics||={};this.settings.venueMetrics[venue]={...(cache||{}),checkedAt:new Date().toISOString(),status:'error',error:e.message};await this.saveData(this.settings);throw e;}finally{this.venueJobs.delete(venue);}
   }
   statusOptions(){return this.settings.statusOptions||[{id:'unread',name:'未读',color:'#f1e2e0'},{id:'reading',name:'阅读中',color:'#f6e8c4'},{id:'done',name:'已读',color:'#dfeede'}];}
   async saveCustomValue(paper,id,value){
@@ -447,10 +440,6 @@ module.exports = class PaperLibrary extends Plugin {
       },
       readNotes: async path => (await this.readNotes(path)).filter(n => !this.settings.hiddenNotes?.includes(n.id)),
       inspectWeb:input=>this.inspectWeb(input),importWeb:(preview,url,folder)=>this.importWeb(preview,url,folder),webBookmarklet:()=>WebImport.bookmarklet(this.app.vault.getName()),
-      getAppearance:()=>Appearance.normalize(this.settings.appearance),previewAppearance:value=>this.applyAppearance(value),
-      saveAppearance:async value=>{this.settings.appearance=Appearance.normalize(value);await this.saveData(this.settings);this.applyAppearance(this.settings.appearance);},
-      saveBackground:async(name,bytes)=>{if(bytes.byteLength>20*1024*1024)throw new Error('背景图片请小于20 MB');const b=new Uint8Array(bytes),type=b[0]===137&&b[1]===80&&b[2]===78?'png':b[0]===255&&b[1]===216?'jpg':new TextDecoder().decode(b.slice(8,12))==='WEBP'?'webp':null;if(!type)throw new Error('请选择 PNG、JPEG 或 WebP 图片');const folder=this.manifest.dir+'/backgrounds';if(!await this.app.vault.adapter.exists(folder))await this.app.vault.adapter.mkdir(folder);const path=folder+'/'+crypto.randomUUID()+'.'+type;await this.app.vault.adapter.writeBinary(path,bytes);return path;},
-      removeBackground:async path=>{if(path.startsWith(this.manifest.dir+'/backgrounds/')&&/^[a-f0-9-]+[.](png|jpg|webp)$/.test(path.slice((this.manifest.dir+'/backgrounds/').length))&&await this.app.vault.adapter.exists(path))await this.app.vault.adapter.remove(path);},
       getIntegrations:()=>this.settings.integrations||{},detectConnections:()=>this.detectConnections(),
       getImportSettings:()=>({alsoSaveToZotero:Boolean(this.settings.alsoSaveToZotero),results:this.settings.zoteroExportResults||{}}),
       saveImportSettings:async value=>{this.settings.alsoSaveToZotero=Boolean(value.alsoSaveToZotero);await this.saveData(this.settings);},
@@ -461,6 +450,7 @@ module.exports = class PaperLibrary extends Plugin {
       recordReading:(paper,page,total)=>this.recordReading(paper,page,total),
       libraryData:()=>this.libraryData(),
       savePaperDetails:(paper,details)=>this.savePaperDetails(paper,details),
+      deletePaper:async path=>{const file=this.app.vault.getAbstractFileByPath(path);if(!(file instanceof TFile)||file.extension.toLowerCase()!=='pdf')throw new Error('文献不存在。');await this.app.vault.trash(file,false);},
       createCategory:async value=>{const path=this.categoryPath(value);await this.ensureFolder(path);return path;},
       movePaper:async(path,folder)=>{const file=this.app.vault.getAbstractFileByPath(path);if(!file||file.extension.toLowerCase()!=='pdf')throw new Error('文献不存在。');folder=this.categoryPath(folder);await this.ensureFolder(folder);const destination=folder+'/'+file.name;if(destination===path)return path;if(this.app.vault.getAbstractFileByPath(destination))throw new Error('目标分类已有同名文件，请先重命名。');await this.app.fileManager.renameFile(file,destination);await this.renameJobs.get(path);await this.handlePaperRename(destination,path,true);return destination;},
       setReadingStatus:async(paper,status)=>{if(status!==''&&!this.statusOptions().some(o=>o.id===status))throw new Error('阅读状态无效');this.settings.reading||={};this.settings.reading[paper]={...this.settings.reading[paper],status};await this.saveData(this.settings);},
@@ -468,7 +458,6 @@ module.exports = class PaperLibrary extends Plugin {
       openPaperNote: paper => this.openPaperNote(paper),
       getReaderPreferences:()=>({headerCollapsed:Boolean(this.settings.readerHeaderCollapsed),sideWidth:this.settings.readerSideWidth||322,sideHidden:Boolean(this.settings.readerSideHidden)}),
       saveReaderPreferences:async({headerCollapsed,sideWidth,sideHidden})=>{if(typeof headerCollapsed==='boolean')this.settings.readerHeaderCollapsed=headerCollapsed;if(Number.isFinite(sideWidth))this.settings.readerSideWidth=Math.min(960,Math.max(200,sideWidth));if(typeof sideHidden==='boolean')this.settings.readerSideHidden=sideHidden;await this.saveData(this.settings);},
-      searchVenueMetrics:(paper,force)=>this.searchVenueMetrics(paper,force),
       getMetadata: paper => this.settings.metadata?.[paper],
       enrichMetadata:(paper,source,force)=>this.enrichMetadata(paper,source,force),
       extractAuthors:(paper,source)=>this.extractAuthors(paper,source),
@@ -486,12 +475,14 @@ module.exports = class PaperLibrary extends Plugin {
         for(const leaf of this.app.workspace.getLeavesOfType(HOME))leaf.view.home?.refresh().catch(console.error);
       },
       connectCodex: () => this.connectCodex(),
+      annotationIcon: style => this.app.vault.adapter.getResourcePath(this.manifest.dir+'/assets/'+(style==='underline'?'underline':'highlight')+'-icon.png'),
+      sceneryUrl:()=>this.app.vault.adapter.getResourcePath(this.manifest.dir+'/assets/meadow-wallpaper.png'),
       brandUrl: () => this.app.vault.adapter.getResourcePath(this.manifest.dir + (require('node:fs').existsSync(join(this.app.vault.adapter.getBasePath(),this.manifest.dir,'reading-frog.png'))?'/reading-frog.png':'/assets/reading-frog.png')),
       paperMenu: (event, paper) => { const { Menu } = require('obsidian'); const menu = new Menu(); menu.addItem(i => i.setTitle('关联 Zotero 文献').onClick(async () => (await this.activate(paper))?.linkZotero())); menu.addItem(i => i.setTitle('打开文章主笔记').onClick(async () => this.app.workspace.getLeaf('tab').openFile(await Notebook.pageFor(this, paper)))); menu.showAtMouseEvent(event); },
       searchZotero: query => this.zotero('items/top?limit=50&q=' + encodeURIComponent(query)),
       linkZotero: (paper, item) => this.linkZotero(paper, item),
       listZoteroPdfs: async item => item.data.itemType==='attachment'&&item.data.contentType==='application/pdf'?[item]:(await this.zotero(`items/${item.key}/children`,false,item._scope||'users/0')).filter(c => c.data.contentType === 'application/pdf' && c.data.linkMode !== 'linked_url'),
-      importZotero: async (item, attachmentKey) => {
+      importZotero: async (item, attachmentKey, folder='文献') => {
         this.settings.zoteroPapers ||= {};
         const children = await this.bridge(view).listZoteroPdfs(item);
         const attachment = attachmentKey ? children.find(c => c.key === attachmentKey) : children.length === 1 ? children[0] : null;
@@ -504,7 +495,7 @@ module.exports = class PaperLibrary extends Plugin {
         const bytes = readFileSync(require('node:url').fileURLToPath(url));
         const hash=require('node:crypto').createHash('sha256').update(bytes).digest('hex'),known=this.settings.zoteroExports?.[hash]?.paper,knownFile=known&&this.app.vault.getAbstractFileByPath(known);
         const sameFile=knownFile&&knownFile.extension==='pdf'&&require('node:crypto').createHash('sha256').update(Buffer.from(await this.app.vault.readBinary(knownFile))).digest('hex')===hash;
-        const paper = sameFile?known:await this.bridge(view).importPdf(item.data.title + (children.length > 1 ? ' · ' + (attachment.data.title || attachment.data.filename || attachment.key) : '') + '.pdf', bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),'文献',{fromZotero:true});
+        const paper = sameFile?known:await this.bridge(view).importPdf(item.data.title + (children.length > 1 ? ' · ' + (attachment.data.title || attachment.data.filename || attachment.key) : '') + '.pdf', bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),folder,{fromZotero:true});
         this.settings.metadata ||= {}; this.settings.metadata[paper] = { title: item.data.title, authors:(item.data.creators||[]).filter(c=>c.creatorType==='author').map(c=>[c.firstName,c.lastName].filter(Boolean).join(' ')||c.name).join(', '),year:item.data.date?.match(/\b(?:19|20)\d{2}\b/)?.[0]||'',venue:item.data.publicationTitle||item.data.conferenceName||item.data.proceedingsTitle||'',tags:(item.data.tags||[]).map(t=>t.tag).filter(Boolean),firstAuthor: item.data.creators?.[0] ? [item.data.creators[0].firstName, item.data.creators[0].lastName].filter(Boolean).join(' ') || item.data.creators[0].name : null };
         this.settings.zoteroPapers[identity] = paper; await this.linkZotero(paper, item);
         this.settings.zoteroExports||={};this.settings.zoteroExports[hash]||={status:'saved',source:'zotero',paper,itemKey:item.key,attachmentKey:attachment.key};

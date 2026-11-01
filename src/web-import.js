@@ -1,3 +1,4 @@
+const {categoryPicker}=require('./import-category');
 function sourceUrl(input){
  let value=String(input||'').trim();if(/^10\.\d{4,9}\//.test(value))value='https://doi.org/'+value;
  let url;try{url=new URL(value);}catch{throw new Error('请输入网页、PDF、arXiv 链接或 DOI。');}
@@ -19,7 +20,7 @@ async function inspect(input,request,parse){
  return{url,title,doi:meta('citation_doi'),year:meta('citation_publication_date').match(/\b(?:19|20)\d{2}\b/)?.[0]||'',venue:meta('citation_journal_title')||meta('citation_conference_title'),pdfs:pdfs.slice(0,12)};
 }
 async function dialog(root,bridge,initial=''){
- const doc=root.ownerDocument,overlay=doc.createElement('div');overlay.className='pl-modal-overlay';root.append(overlay);
+ const doc=root.ownerDocument,overlay=doc.createElement('div');overlay.className='pl-modal-overlay';overlay.style.top=root.scrollTop+'px';overlay.style.bottom='auto';overlay.style.height=root.clientHeight+'px';root.append(overlay);
  const box=doc.createElement('section');box.className='pl-modal pl-web-import';box.setAttribute('role','dialog');box.setAttribute('aria-label','从网页导入');overlay.append(box);
  const el=(tag,cls,text,parent=box)=>{const n=doc.createElement(tag);n.className=cls||'';if(text)n.textContent=text;parent.append(n);return n;};
  const close=()=>overlay.remove(),button=(text,parent,action,cls='')=>{const b=el('button','pl-btn '+cls,text,parent);b.onclick=()=>Promise.resolve().then(action).catch(e=>bridge.notice(e.message));return b;};
@@ -28,8 +29,8 @@ async function dialog(root,bridge,initial=''){
  const result=el('div','pl-web-results'),actions=el('div','pl-modal-actions');
  const probe=button('解析链接',actions,async()=>{probe.disabled=true;result.textContent='正在查找 PDF…';try{const preview=await bridge.inspectWeb(field.value);result.replaceChildren();el('p','pl-web-title',preview.title,result);if(!preview.pdfs.length){el('p','pl-muted','这个页面未找到可下载 PDF。可使用出版社的 PDF 链接；需要登录的页面请先在浏览器下载。',result);return;}
  const choices=preview.pdfs.map((pdf,i)=>{const row=el('label','pl-attachment-choice','',result),check=el('input','','',row);check.type='checkbox';check.checked=i===0;el('span','',pdf.label,row);return{pdf,check};});
- const data=await bridge.libraryData(),folder=el('select','pl-select','',result);folder.setAttribute('aria-label','导入到文件夹');for(const path of data.folders){const option=el('option','',path,folder);option.value=path;}folder.value='文献';
- button('导入选中的 PDF',result,async()=>{const selected=choices.filter(c=>c.check.checked);if(!selected.length)return bridge.notice('请选择至少一个 PDF');const paths=[];for(const c of selected)paths.push(await bridge.importWeb(preview,c.pdf.url,folder.value));close();await bridge.openHome?.();bridge.notice('已导入 '+paths.length+' 篇文献');},'pl-primary');
+ const data=await bridge.libraryData(),category=categoryPicker(result,bridge,data.folders);
+ button('导入选中的 PDF',result,async()=>{const selected=choices.filter(c=>c.check.checked);if(!selected.length)return bridge.notice('请选择至少一个 PDF');const target=await category.resolve(),paths=[];for(const c of selected)paths.push(await bridge.importWeb(preview,c.pdf.url,target));close();await bridge.openHome?.();bridge.notice('已导入 '+paths.length+' 篇文献');},'pl-primary');
  }catch(e){result.textContent=e.message;}finally{probe.disabled=false;}});
  button('复制浏览器导入书签',actions,async()=>{await doc.defaultView.navigator.clipboard.writeText(bridge.webBookmarklet());bridge.notice('书签代码已复制：新建浏览器书签，将网址替换为此代码；阅读网页时点击该书签即可导入。');});
  el('p','pl-small','在浏览器中点击导入书签，会把当前页面送到这里；也可直接粘贴链接。');

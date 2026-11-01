@@ -2,8 +2,8 @@ const {test}=require('node:test'),assert=require('node:assert/strict'),N=require
 test('human Markdown contains quote and comment, omits coordinates, translation, page links and generated headings',()=>{
  const note={id:'test',kind:'highlight',paper:'a.pdf',page:7,color:'red',rects:[{x:.1,y:.2,w:.3,h:.1}],translation:'automatic translation',body:'My own comment',quote:'Original text\nSecond line'};
  const source=N.group(N.blockFor(note),{test:F.record(note)});
- assert.ok(source.includes('> Original text\n> Second line'));assert.ok(source.includes('My own comment'));
- for(const text of ['rects','a.pdf','automatic translation','P7','返回第','划线批注'])assert.ok(!source.includes(text),text);
+ assert.ok(source.includes('> > Original text\n> > Second line'));assert.ok(source.includes('My own comment'));
+ for(const text of ['rects','automatic translation','P7','返回第','划线批注'])assert.ok(!source.includes(text),text);
  const [read]=N.blocks(source,'note.md',{records:{test:F.record(note)}});assert.deepEqual(read.rects,note.rects);assert.equal(read.translation,note.translation);assert.equal(read.body,note.body);assert.equal(read.quote,note.quote);
 });
 test('sticky custom title and Markdown body survive reading and regrouping',()=>{

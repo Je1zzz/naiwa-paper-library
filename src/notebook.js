@@ -22,10 +22,12 @@ function blocks(source, path, {allVersions=false,records={}}={}) {
   for (const m of source.matchAll(re)) {
     try {
       const stored = annotationMeta(m[1]),meta={...records[stored.id],...stored};
-      const body = m[2].split(/\r?\n<!-- paper-library:body -->\r?\n/)[1] ?? '';
+      const content=stored.layout>=2?m[2].split(/\r?\n/).slice(1).map(line=>line.replace(/^> ?/,'')).join('\n'):m[2];
+      const rawBody = content.split(/\r?\n<!-- paper-library:body -->\r?\n/)[1] ?? '';
+      const body=stored.layout===3?rawBody.replace(/^\n/,''):rawBody;
       const translated = m[2].match(/<!-- paper-library:translation -->\r?\n([\s\S]*?)\r?\n<!-- paper-library:translation:end -->/);
-      const quote=[...m[2].split(/\r?\n<!-- paper-library:body -->/)[0].matchAll(/(?:^|\r?\n)>[ \t]?(.*)/g)].map(match=>match[1]).join('\n');
-      let title=m[2].match(/^### (.*)$/m)?.[1];
+      const quote=[...content.split(/\r?\n<!-- paper-library:body -->/)[0].matchAll(/(?:^|\r?\n)>[ \t]?(.*)/g)].map(match=>match[1]).filter(line=>!/^\[!paper-(?:yellow|red|green|blue|purple|pink|orange|gray)\]$/.test(line)).join('\n');
+      let title=content.match(/^### (.*)$/m)?.[1];
       if(stored.paper&&title?.endsWith(' · P'+meta.page)){title=title.slice(0,-(' · P'+meta.page).length);if(!meta.title&&['便笺','划线批注','翻译与批注','AI 摘记','阅读笔记'].includes(title))title=undefined;}
       out.push({ ...meta,...(title!==undefined?{title}:{}),quote:quote||meta.quote||'', ...(translated ? { translation: translated[1] } : {}), body, path, _block: m[0] });
     } catch { /* Preserve malformed blocks for manual repair. */ }
@@ -47,7 +49,7 @@ async function pageFor(plugin, paper) {
     await plugin.ensureFolder('阅读笔记');
     if (!plugin.app.vault.getAbstractFileByPath(path)) {
       await plugin.app.vault.create(path, group('---\ncssclasses:\n  - paper-library-note\n---\n\n## 阅读札记\n',plugin.settings.annotationRecords||{}));
-      plugin.settings.cleanNotePages||={};plugin.settings.cleanNotePages[path]=1;
+      plugin.settings.cleanNotePages||={};plugin.settings.cleanNotePages[path]=3;
     }
     plugin.settings.notePages[paper] = path;
     await plugin.saveData(plugin.settings);
@@ -68,9 +70,12 @@ function group(source,records) {
 function blockFor(note,compact=false) {
   const { body, path, _source, _block, _originalBody, ...meta } = note;
   const title = (note.title||'').replace(/[\r\n]/g, ' ');
-  const quote = note.quote ? '\n> ' + note.quote.replace(/\n/g, '\n> ') + '\n' : '';
-  const encoded = JSON.stringify(compact?{id:note.id}:meta).replace(/</g,'\\u003c').replace(/>/g,'\\u003e');
-  return `${START}${encoded} -->\n${title?'### '+title+'\n':''}${quote}\n<!-- paper-library:body -->\n${body || ''}\n<!-- paper-library:end -->`;
+  const shade=['yellow','red','green','blue','purple','pink','orange','gray'].includes(note.color)?note.color:'yellow';
+  const quote = note.quote ? '> ' + note.quote.replace(/\n/g, '\n> ') : '';
+  const encoded = JSON.stringify(compact?{id:note.id,layout:3}:{...meta,layout:3}).replace(/</g,'\\u003c').replace(/>/g,'\\u003e');
+  const content=[title?'### '+title:'',quote,'','<!-- paper-library:body -->','',body||''].join('\n');
+  return `${START}${encoded} -->\n> [!paper-${shade}] ${note.paper?'[['+note.paper+'#page='+note.page+'|'+note.paper.split('/').pop().replace(/\.pdf$/i,'')+' · p. '+note.page+']]':''}\n${content.split('\n').map(line=>'> '+line).join('\n')}\n<!-- paper-library:end -->`;
+
 }
 async function save(plugin, note) {
   const file = await pageFor(plugin, note.paper);

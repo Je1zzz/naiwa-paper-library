@@ -109,11 +109,11 @@
       swatch.style.backgroundColor = value; swatch.dataset.color = key; swatch.setAttribute('aria-label', { yellow: '黄色', red: '红色', green: '绿色', blue: '蓝色', purple: '紫色', pink: '粉色', orange: '橙色', gray: '灰色' }[key]);
     }
     const selectionActions = el('div', 'pl-selection-actions', null, selectionBar);
-    const highlightButton = button('高亮', selectionActions, () => { annotationStyle = 'highlight'; markColor(); return styleSelection(); });
+    const highlightButton = button('▣', selectionActions, () => { annotationStyle = 'highlight'; markColor(); return styleSelection(); });
     highlightButton.setAttribute('aria-label', '文本高亮');
-    const underlineButton = button('下划线', selectionActions, () => { annotationStyle = 'underline'; markColor(); return styleSelection(); });
-    button('批注', selectionActions, async () => { annotationStyle||='highlight';markColor();const note = await styleSelection(); if (note) { focusedNoteId = note.id; sideTab = 'notes';setSideHidden(false).catch(error); renderSide(); } });
-    button('×', selectionActions, clearSelection).setAttribute('aria-label', '取消选中');
+    const underlineButton = button('A̲', selectionActions, () => { annotationStyle = 'underline'; markColor(); return styleSelection(); });
+    underlineButton.setAttribute('aria-label', '下划线');
+    for(const [button,style]of [[highlightButton,'highlight'],[underlineButton,'underline']]){button.textContent='';const icon=el('img','pl-tool-icon',null,button);icon.src=bridge.annotationIcon?.(style)||'';icon.alt='';button.title=style==='highlight'?'高亮':'下划线';}
     const selectionTranslation = el('div', 'pl-selection-translation', '选中文字后自动翻译', selectionBar);
     const selectionSaveStatus=el('small','pl-selection-save-status','',selectionBar);selectionSaveStatus.setAttribute('aria-live','polite');
     selectionBar.addEventListener('pointerdown', e => e.stopPropagation());
@@ -338,6 +338,21 @@
       selectionBar.classList.remove('pl-hidden'); placeSelectionBar();
       chatScope = 'selection'; updateContextPreview();
     }
+    const dismissSelection=event=>{if(!selectionBar.contains(event.target)&&!commentPopup.contains(event.target)){clearSelection();commentPopup.classList.add('pl-hidden');}};
+    doc.addEventListener('pointerdown',dismissSelection,true);
+    const commentPopup=el('div','pl-annotation-popup pl-hidden',null,main);
+    function openAnnotation(note,event){
+      clearSelection();commentPopup.replaceChildren();
+      commentPopup.style.setProperty('--note-color',COLORS[note.color]||COLORS.yellow);
+      el('div','pl-annotation-heading','▣  页 '+note.page,commentPopup);
+      const body=el('textarea','pl-annotation-body',null,commentPopup);body.placeholder='添加评论';body.setAttribute('aria-label','批注正文');body.value=note.body||'';
+      let current=note,queue=Promise.resolve();
+      body.addEventListener('change',()=>{const value=body.value;queue=queue.then(async()=>{current=await bridge.saveNote({...current,body:value});await refresh();}).catch(error);});
+      commentPopup.classList.remove('pl-hidden');
+      commentPopup.style.left=Math.max(8,Math.min(event.clientX,win.innerWidth-252))+'px';
+      commentPopup.style.top=Math.max(8,Math.min(event.clientY+12,win.innerHeight-155))+'px';
+      focusedNoteId=note.id;sideTab='notes';renderSide();body.focus();
+    }
     paperHost.addEventListener('pointerup', captureSelection);
     paperHost.addEventListener('keyup', captureSelection);
     function clearSelection() {
@@ -347,6 +362,11 @@
     }
     paperHost.addEventListener('click', event => {
       const clicked = event.target.closest('.pl-page'); if (clicked) { pageBox = clicked; page = Number(clicked.dataset.page); }
+      if(!stickyMode&&clicked&&win.getSelection()?.isCollapsed){
+        const bounds=clicked.getBoundingClientRect(),x=(event.clientX-bounds.left)/bounds.width,y=(event.clientY-bounds.top)/bounds.height;
+        const note=notes.find(n=>n.kind==='highlight'&&Number(n.page)===page&&(n.rects||[]).some(r=>x>=r.x&&x<=r.x+r.w&&y>=r.y&&y<=r.y+r.h));
+        if(note)openAnnotation(note,event);
+      }
       if (!stickyMode || event.target.closest('.pl-sticky')) return;
       const r = pageBox.getBoundingClientRect();
       const point = { x: Core.clamp((event.clientX - r.left) / r.width, 0, .85), y: Core.clamp((event.clientY - r.top) / r.height, 0, .94) };
@@ -500,7 +520,7 @@
       const rect = selectionRange.getBoundingClientRect(), area = readingArea.getBoundingClientRect();
       if (rect.bottom < area.top || rect.top > area.bottom) { selectionBar.classList.add('pl-hidden'); return; }
       selectionBar.classList.remove('pl-hidden');
-      const width = Math.min(360, area.width - 20), height = selectionBar.offsetHeight || 180;
+      const width = Math.min(204, area.width - 20), height = selectionBar.offsetHeight || 180;
       selectionBar.style.width = width + 'px';
       selectionBar.style.left = Core.clamp(rect.left, area.left + 8, Math.max(area.left + 8, area.right - width - 8)) + 'px';
       selectionBar.style.top = (rect.bottom + height + 12 < area.bottom ? rect.bottom + 8 : Math.max(area.top + 8, rect.top - height - 8)) + 'px';
@@ -567,7 +587,7 @@
         }
         search.oninput=renderChoices;search.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();create().catch(error);}if(e.key==='Escape'){menu.open=false;summary.focus();}};renderChoices();
       }
-      const labelValue=property('Label');notionOptions(labelValue,{key:'labels',name:'Label',values:paper.labels||[],options:[...new Set([...Object.keys(data.labelColors||{}),...data.papers.flatMap(p=>p.labels||[])])].map(tag=>({id:tag,name:tag,color:data.labelColors?.[tag]||'#edf2e8'})),change:values=>bridge.savePaperDetails(current,{labels:values}),edit:async(id,name,color)=>{if(bridge.renameLabel)await bridge.renameLabel(id,name,color);else await bridge.setLabelColor(name,color);return name;},remove:id=>bridge.deleteLabel(id)});
+      const labelValue=property('标签');notionOptions(labelValue,{key:'labels',name:'标签',values:paper.labels||[],options:[...new Set([...Object.keys(data.labelColors||{}),...data.papers.flatMap(p=>p.labels||[])])].map(tag=>({id:tag,name:tag,color:data.labelColors?.[tag]||'#edf2e8'})),change:values=>bridge.savePaperDetails(current,{labels:values}),edit:async(id,name,color)=>{if(bridge.renameLabel)await bridge.renameLabel(id,name,color);else await bridge.setLabelColor(name,color);return name;},remove:id=>bridge.deleteLabel(id)});
       const ratingOptions=data.ratingOptions||[],ratingValues=(paper.ratingValues||[]).filter(id=>ratingOptions.some(o=>o.id===id));
       notionOptions(property('Rating'),{key:'rating',name:'Rating',values:ratingValues,options:ratingOptions,change:values=>bridge.savePropertySelections(current,'rating',values),edit:async(id,name,color)=>{id||='rating-'+Date.now().toString(36);await bridge.saveRatingOptions([...ratingOptions.filter(o=>o.id!==id),{id,name,color}]);return id;},remove:async id=>{await bridge.saveRatingOptions(ratingOptions.filter(o=>o.id!==id));for(const item of data.papers)if(item.ratingValues?.includes(id))await bridge.savePropertySelections(item.path,'rating',item.ratingValues.filter(v=>v!==id));}});
       const statusOptions=data.statusOptions||[{id:'unread',name:'未读',color:'#f1e2e0'},{id:'reading',name:'阅读中',color:'#f6e8c4'},{id:'done',name:'已读',color:'#dfeede'}],statusValues=(paper.statusValues||[paper.status]).filter(id=>statusOptions.some(o=>o.id===id));
@@ -829,7 +849,7 @@
       revealProperty(key){if(headerCollapsed){headerCollapsed=false;updateHeader();}const menu=paperControls.querySelector('details[data-property="'+key+'"]');if(menu)menu.open=true;},
       get paperPath() { return paperPath; },
       renamePaper(oldPath, newPath) { if (paperPath === oldPath) { paperPath = newPath; metadata=bridge.getMetadata?.(newPath)||metadata; title.textContent = metadata?.title||newPath.split('/').pop().replace(/\.pdf$/i, ''); bridge.onPaperChange?.(); } },
-      destroy() { doc.removeEventListener('pointerdown',closePropertyMenus,true);doc.removeEventListener('keydown',escapeProperties,true);endSideDrag();sideObserver.disconnect();destroyed = true; ++epoch; ++renderEpoch; ++chatGeneration; observer.disconnect(); pageObserver?.disconnect(); clearTimeout(resizeTimer); clearTimeout(zoomTimer); clearTimeout(navigationTimer); clearTimeout(translationTimer); renderTask?.cancel(); textTask?.cancel?.(); loadTask?.destroy(); pdf?.destroy(); root.replaceChildren(); }
+      destroy() { doc.removeEventListener('pointerdown',dismissSelection,true);doc.removeEventListener('pointerdown',closePropertyMenus,true);doc.removeEventListener('keydown',escapeProperties,true);endSideDrag();sideObserver.disconnect();destroyed = true; ++epoch; ++renderEpoch; ++chatGeneration; observer.disconnect(); pageObserver?.disconnect(); clearTimeout(resizeTimer); clearTimeout(zoomTimer); clearTimeout(navigationTimer); clearTimeout(translationTimer); renderTask?.cancel(); textTask?.cancel?.(); loadTask?.destroy(); pdf?.destroy(); root.replaceChildren(); }
     };
   }
   return { createReader };

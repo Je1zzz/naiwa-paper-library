@@ -198,29 +198,25 @@ var require_reader = __commonJS({
           swatch.setAttribute("aria-label", { yellow: "黄色", red: "红色", green: "绿色", blue: "蓝色", purple: "紫色", pink: "粉色", orange: "橙色", gray: "灰色" }[key]);
         }
         const selectionActions = el("div", "pl-selection-actions", null, selectionBar);
-        const highlightButton = button("高亮", selectionActions, () => {
+        const highlightButton = button("▣", selectionActions, () => {
           annotationStyle = "highlight";
           markColor();
           return styleSelection();
         });
         highlightButton.setAttribute("aria-label", "文本高亮");
-        const underlineButton = button("下划线", selectionActions, () => {
+        const underlineButton = button("A̲", selectionActions, () => {
           annotationStyle = "underline";
           markColor();
           return styleSelection();
         });
-        button("批注", selectionActions, async () => {
-          annotationStyle ||= "highlight";
-          markColor();
-          const note = await styleSelection();
-          if (note) {
-            focusedNoteId = note.id;
-            sideTab = "notes";
-            setSideHidden(false).catch(error);
-            renderSide();
-          }
-        });
-        button("×", selectionActions, clearSelection).setAttribute("aria-label", "取消选中");
+        underlineButton.setAttribute("aria-label", "下划线");
+        for (const [button2, style] of [[highlightButton, "highlight"], [underlineButton, "underline"]]) {
+          button2.textContent = "";
+          const icon = el("img", "pl-tool-icon", null, button2);
+          icon.src = bridge.annotationIcon?.(style) || "";
+          icon.alt = "";
+          button2.title = style === "highlight" ? "高亮" : "下划线";
+        }
         const selectionTranslation = el("div", "pl-selection-translation", "选中文字后自动翻译", selectionBar);
         const selectionSaveStatus = el("small", "pl-selection-save-status", "", selectionBar);
         selectionSaveStatus.setAttribute("aria-live", "polite");
@@ -632,6 +628,39 @@ ${line}`);
           chatScope = "selection";
           updateContextPreview();
         }
+        const dismissSelection = (event) => {
+          if (!selectionBar.contains(event.target) && !commentPopup.contains(event.target)) {
+            clearSelection();
+            commentPopup.classList.add("pl-hidden");
+          }
+        };
+        doc.addEventListener("pointerdown", dismissSelection, true);
+        const commentPopup = el("div", "pl-annotation-popup pl-hidden", null, main);
+        function openAnnotation(note, event) {
+          clearSelection();
+          commentPopup.replaceChildren();
+          commentPopup.style.setProperty("--note-color", COLORS[note.color] || COLORS.yellow);
+          el("div", "pl-annotation-heading", "▣  页 " + note.page, commentPopup);
+          const body = el("textarea", "pl-annotation-body", null, commentPopup);
+          body.placeholder = "添加评论";
+          body.setAttribute("aria-label", "批注正文");
+          body.value = note.body || "";
+          let current = note, queue = Promise.resolve();
+          body.addEventListener("change", () => {
+            const value = body.value;
+            queue = queue.then(async () => {
+              current = await bridge.saveNote({ ...current, body: value });
+              await refresh();
+            }).catch(error);
+          });
+          commentPopup.classList.remove("pl-hidden");
+          commentPopup.style.left = Math.max(8, Math.min(event.clientX, win.innerWidth - 252)) + "px";
+          commentPopup.style.top = Math.max(8, Math.min(event.clientY + 12, win.innerHeight - 155)) + "px";
+          focusedNoteId = note.id;
+          sideTab = "notes";
+          renderSide();
+          body.focus();
+        }
         paperHost.addEventListener("pointerup", captureSelection);
         paperHost.addEventListener("keyup", captureSelection);
         function clearSelection() {
@@ -651,6 +680,11 @@ ${line}`);
           if (clicked) {
             pageBox = clicked;
             page = Number(clicked.dataset.page);
+          }
+          if (!stickyMode && clicked && win.getSelection()?.isCollapsed) {
+            const bounds = clicked.getBoundingClientRect(), x = (event.clientX - bounds.left) / bounds.width, y = (event.clientY - bounds.top) / bounds.height;
+            const note = notes.find((n) => n.kind === "highlight" && Number(n.page) === page && (n.rects || []).some((r2) => x >= r2.x && x <= r2.x + r2.w && y >= r2.y && y <= r2.y + r2.h));
+            if (note) openAnnotation(note, event);
           }
           if (!stickyMode || event.target.closest(".pl-sticky")) return;
           const r = pageBox.getBoundingClientRect();
@@ -913,7 +947,7 @@ ${line}`);
             return;
           }
           selectionBar.classList.remove("pl-hidden");
-          const width = Math.min(360, area.width - 20), height = selectionBar.offsetHeight || 180;
+          const width = Math.min(204, area.width - 20), height = selectionBar.offsetHeight || 180;
           selectionBar.style.width = width + "px";
           selectionBar.style.left = Core2.clamp(rect.left, area.left + 8, Math.max(area.left + 8, area.right - width - 8)) + "px";
           selectionBar.style.top = (rect.bottom + height + 12 < area.bottom ? rect.bottom + 8 : Math.max(area.top + 8, rect.top - height - 8)) + "px";
@@ -1091,8 +1125,8 @@ ${line}`);
             };
             renderChoices();
           }
-          const labelValue = property("Label");
-          notionOptions(labelValue, { key: "labels", name: "Label", values: paper.labels || [], options: [.../* @__PURE__ */ new Set([...Object.keys(data.labelColors || {}), ...data.papers.flatMap((p) => p.labels || [])])].map((tag) => ({ id: tag, name: tag, color: data.labelColors?.[tag] || "#edf2e8" })), change: (values) => bridge.savePaperDetails(current, { labels: values }), edit: async (id, name, color2) => {
+          const labelValue = property("标签");
+          notionOptions(labelValue, { key: "labels", name: "标签", values: paper.labels || [], options: [.../* @__PURE__ */ new Set([...Object.keys(data.labelColors || {}), ...data.papers.flatMap((p) => p.labels || [])])].map((tag) => ({ id: tag, name: tag, color: data.labelColors?.[tag] || "#edf2e8" })), change: (values) => bridge.savePaperDetails(current, { labels: values }), edit: async (id, name, color2) => {
             if (bridge.renameLabel) await bridge.renameLabel(id, name, color2);
             else await bridge.setLabelColor(name, color2);
             return name;
@@ -1667,6 +1701,7 @@ ${line}`);
             }
           },
           destroy() {
+            doc.removeEventListener("pointerdown", dismissSelection, true);
             doc.removeEventListener("pointerdown", closePropertyMenus, true);
             doc.removeEventListener("keydown", escapeProperties, true);
             endSideDrag();
@@ -1694,9 +1729,55 @@ ${line}`);
   }
 });
 
+// src/import-category.js
+var require_import_category = __commonJS({
+  "src/import-category.js"(exports2, module2) {
+    function categoryPicker(parent, bridge, folders = [], current = "文献") {
+      const doc = parent.ownerDocument, box = doc.createElement("div");
+      box.className = "pl-import-category";
+      parent.append(box);
+      const label = doc.createElement("label");
+      label.textContent = "导入分类";
+      box.append(label);
+      const select = doc.createElement("select");
+      select.className = "pl-select";
+      select.setAttribute("aria-label", "导入分类");
+      label.append(select);
+      for (const path of /* @__PURE__ */ new Set(["文献", ...folders, current])) {
+        const option2 = doc.createElement("option");
+        option2.value = path;
+        option2.textContent = path;
+        select.append(option2);
+      }
+      const option = doc.createElement("option");
+      option.value = "__new__";
+      option.textContent = "＋ 新建分类";
+      select.append(option);
+      select.value = current;
+      const name = doc.createElement("input");
+      name.className = "pl-input";
+      name.placeholder = "例如：脑科学／世界模型";
+      name.setAttribute("aria-label", "新分类名称");
+      name.hidden = true;
+      box.append(name);
+      select.onchange = () => {
+        name.hidden = select.value !== "__new__";
+        if (!name.hidden) name.focus();
+      };
+      return { async resolve() {
+        if (select.value !== "__new__") return select.value;
+        if (!name.value.trim()) throw new Error("请输入新分类名称");
+        return bridge.createCategory(name.value.trim());
+      } };
+    }
+    module2.exports = { categoryPicker };
+  }
+});
+
 // src/web-import.js
 var require_web_import = __commonJS({
   "src/web-import.js"(exports2, module2) {
+    var { categoryPicker } = require_import_category();
     function sourceUrl(input) {
       let value = String(input || "").trim();
       if (/^10\.\d{4,9}\//.test(value)) value = "https://doi.org/" + value;
@@ -1743,6 +1824,9 @@ var require_web_import = __commonJS({
     async function dialog(root, bridge, initial = "") {
       const doc = root.ownerDocument, overlay = doc.createElement("div");
       overlay.className = "pl-modal-overlay";
+      overlay.style.top = root.scrollTop + "px";
+      overlay.style.bottom = "auto";
+      overlay.style.height = root.clientHeight + "px";
       root.append(overlay);
       const box = doc.createElement("section");
       box.className = "pl-modal pl-web-import";
@@ -1787,18 +1871,12 @@ var require_web_import = __commonJS({
             el("span", "", pdf.label, row);
             return { pdf, check };
           });
-          const data = await bridge.libraryData(), folder = el("select", "pl-select", "", result);
-          folder.setAttribute("aria-label", "导入到文件夹");
-          for (const path of data.folders) {
-            const option = el("option", "", path, folder);
-            option.value = path;
-          }
-          folder.value = "文献";
+          const data = await bridge.libraryData(), category = categoryPicker(result, bridge, data.folders);
           button("导入选中的 PDF", result, async () => {
             const selected = choices.filter((c) => c.check.checked);
             if (!selected.length) return bridge.notice("请选择至少一个 PDF");
-            const paths = [];
-            for (const c of selected) paths.push(await bridge.importWeb(preview, c.pdf.url, folder.value));
+            const target = await category.resolve(), paths = [];
+            for (const c of selected) paths.push(await bridge.importWeb(preview, c.pdf.url, target));
             close();
             await bridge.openHome?.();
             bridge.notice("已导入 " + paths.length + " 篇文献");
@@ -1828,135 +1906,13 @@ var require_web_import = __commonJS({
   }
 });
 
-// src/appearance.js
-var require_appearance = __commonJS({
-  "src/appearance.js"(exports2, module2) {
-    var defaults = { enabled: false, color: "#e9edf0", backgroundFile: "", transparency: 25, blur: 16 };
-    function normalize(value = {}) {
-      return { enabled: Boolean(value.enabled), color: /^#[\da-f]{6}$/i.test(value.color || "") ? value.color : defaults.color, backgroundFile: String(value.backgroundFile || ""), transparency: Math.max(0, Math.min(95, Number(value.transparency ?? 25) || 0)), blur: Math.max(0, Math.min(40, Number(value.blur ?? 16) || 0)) };
-    }
-    function apply(root, value, resource) {
-      const v = normalize(value);
-      root.classList.toggle("pl-glass-mode", v.enabled);
-      root.style.setProperty("--pl-wallpaper-color", v.color);
-      root.style.setProperty("--pl-wallpaper", v.backgroundFile && resource ? "url(" + JSON.stringify(resource(v.backgroundFile)) + ")" : "none");
-      root.style.setProperty("--pl-glass-opacity", String(1 - v.transparency / 100));
-      root.style.setProperty("--pl-glass-blur", v.blur + "px");
-    }
-    function dialog(root, bridge) {
-      const doc = root.ownerDocument, original = normalize(bridge.getAppearance?.()), draft = { ...original }, created = [];
-      const el = (tag, cls, text, parent) => {
-        const n = doc.createElement(tag);
-        n.className = cls || "";
-        if (text) n.textContent = text;
-        parent?.append(n);
-        return n;
-      };
-      const overlay = el("div", "pl-modal-overlay", "", root), box = el("section", "pl-modal pl-appearance-modal", "", overlay);
-      box.setAttribute("role", "dialog");
-      box.setAttribute("aria-label", "背景与玻璃");
-      const button = (text, parent, action, cls = "") => {
-        const b = el("button", "pl-btn " + cls, text, parent);
-        b.onclick = () => Promise.resolve().then(action).catch((e) => bridge.notice(e.message));
-        return b;
-      };
-      const preview = () => bridge.previewAppearance(draft), close = (save) => {
-        doc.removeEventListener("keydown", esc);
-        overlay.remove();
-        if (!save) {
-          bridge.previewAppearance(original);
-          for (const path of created) bridge.removeBackground?.(path).catch(() => {
-          });
-        }
-      };
-      const esc = (e) => {
-        if (e.key === "Escape") close(false);
-      };
-      doc.addEventListener("keydown", esc);
-      overlay.onpointerdown = (e) => {
-        if (e.target === overlay) close(false);
-      };
-      const head = el("div", "pl-modal-heading", "", box);
-      el("h3", "", "背景与玻璃", head);
-      button("×", head, () => close(false));
-      const row = (label) => {
-        const r = el("label", "pl-appearance-row", "", box);
-        el("span", "", label, r);
-        return r;
-      };
-      const enabled = el("input", "", "", row("启用玻璃效果"));
-      enabled.type = "checkbox";
-      enabled.checked = draft.enabled;
-      enabled.setAttribute("aria-label", "启用玻璃效果");
-      enabled.onchange = () => {
-        draft.enabled = enabled.checked;
-        preview();
-      };
-      const color = el("input", "", "", row("背景颜色"));
-      color.type = "color";
-      color.value = draft.color;
-      color.setAttribute("aria-label", "背景颜色");
-      color.oninput = () => {
-        draft.color = color.value;
-        preview();
-      };
-      for (const [key, name, max] of [["transparency", "面板透明度", 95], ["blur", "背景模糊", 40]]) {
-        const r = row(name), slider = el("input", "", "", r), value = el("output", "", "", r);
-        slider.type = "range";
-        slider.min = 0;
-        slider.max = max;
-        slider.value = draft[key];
-        slider.setAttribute("aria-label", name);
-        const update = () => {
-          draft[key] = Number(slider.value);
-          value.textContent = draft[key] + (key === "blur" ? " px" : "%");
-          preview();
-        };
-        slider.oninput = update;
-        value.textContent = draft[key] + (key === "blur" ? " px" : "%");
-      }
-      const file = el("input", "pl-hidden", "", box);
-      file.type = "file";
-      file.accept = "image/png,image/jpeg,image/webp";
-      file.onchange = async () => {
-        try {
-          const f = file.files[0];
-          if (!f) return;
-          const path = await bridge.saveBackground(f.name, await f.arrayBuffer());
-          created.push(path);
-          draft.backgroundFile = path;
-          draft.enabled = true;
-          enabled.checked = true;
-          preview();
-        } catch (e) {
-          bridge.notice(e.message);
-        }
-      };
-      const image = el("div", "pl-appearance-image-actions", "", box);
-      button("选择背景图片", image, () => file.click());
-      button("移除图片", image, () => {
-        draft.backgroundFile = "";
-        preview();
-      });
-      const actions = el("div", "pl-modal-actions", "", box);
-      button("取消", actions, () => close(false));
-      button("保存", actions, async () => {
-        await bridge.saveAppearance(draft);
-        close(true);
-      }, "pl-primary");
-    }
-    module2.exports = { defaults, normalize, apply, dialog };
-  }
-});
-
 // src/home.js
 var require_home = __commonJS({
   "src/home.js"(exports2, module2) {
     var WebImport2 = require_web_import();
-    var Appearance2 = require_appearance();
+    var { categoryPicker } = require_import_category();
     async function createHome2(root, bridge) {
       const doc = root.ownerDocument;
-      const metricLabel = (t) => (t.type === "CCF" ? "CCF-" + t.value : t.type === "CAS" ? "中科院 " + t.value : t.type + " " + t.value) + " · " + t.year;
       root.classList.add("pl", "pl-home");
       let data, query = "", folder = "", label = "", tab = "library", sort = "recent", closed = false;
       const el = (tag, cls, text, parent) => {
@@ -1972,6 +1928,9 @@ var require_home = __commonJS({
         b.onclick = () => Promise.resolve().then(action).catch((e) => bridge.notice(e.message));
         return b;
       };
+      const scenery = el("div", "pl-home-scenery", void 0, root);
+      scenery.setAttribute("aria-hidden", "true");
+      if (bridge.sceneryUrl) scenery.style.backgroundImage = "url(" + JSON.stringify(bridge.sceneryUrl()) + ")";
       const shell = el("div", "pl-home-shell", void 0, root), nav = el("header", "pl-home-nav", void 0, shell);
       const identity = el("div", "pl-home-identity", void 0, nav), logo = el("img", "pl-home-frog", void 0, identity);
       logo.src = bridge.brandUrl();
@@ -1980,29 +1939,92 @@ var require_home = __commonJS({
       const navigation = el("nav", "pl-home-navigation", void 0, nav);
       navigation.setAttribute("aria-label", "首页导航");
       const main = el("main", "pl-home-main", void 0, shell), header = el("header", "pl-home-header", void 0, main), words = el("div", "", void 0, header), title = el("h1", "", "文献", words), subtitle = el("p", "pl-muted", "", words), actions = el("div", "pl-home-actions", void 0, header);
-      const fileInput = el("input", "pl-hidden", void 0, root);
-      fileInput.type = "file";
-      fileInput.multiple = true;
-      fileInput.accept = ".pdf,application/pdf";
-      const importButton = button("导入 PDF", actions, () => fileInput.click());
-      button("Zotero 导入", actions, zoteroDialog);
-      if (bridge.inspectWeb) button("网页导入", actions, () => WebImport2.dialog(root, bridge));
-      button("新建分类", actions, folderDialog);
-      if (bridge.getAppearance) button("外观", actions, () => Appearance2.dialog(root, bridge));
-      if (bridge.getImportSettings) button("导入设置", actions, importSettingsDialog);
+      const importButton = button("导入 ▾", actions, () => showMenu(importButton, [["PDF 导入", pdfDialog], ["网页导入", () => WebImport2.dialog(root, bridge)], ["Zotero 导入", zoteroDialog], ["导入设置", importSettingsDialog]]));
+      importButton.setAttribute("aria-haspopup", "menu");
+      importButton.setAttribute("aria-expanded", "false");
       const content = el("section", "pl-home-content", void 0, main);
-      fileInput.onchange = async () => {
-        importButton.disabled = true;
-        try {
-          for (const file of fileInput.files) await bridge.importPdf(file.name, await file.arrayBuffer(), folder || "文献");
-          await refresh();
-        } catch (e) {
-          bridge.notice(e.message);
-        } finally {
-          fileInput.value = "";
-          importButton.disabled = false;
+      let menu, menuAnchor;
+      function closeMenu() {
+        menu?.remove();
+        menu = null;
+        menuAnchor?.setAttribute("aria-expanded", "false");
+        menuAnchor = null;
+      }
+      function showMenu(anchor, items, event) {
+        closeMenu();
+        menuAnchor = anchor;
+        anchor.setAttribute("aria-expanded", "true");
+        menu = el("div", "pl-popup-menu", void 0, root);
+        menu.setAttribute("role", "menu");
+        for (const [name, action] of items) {
+          const item = button(name, menu, () => {
+            closeMenu();
+            return action();
+          }, name === "删除" ? "pl-danger" : "");
+          item.setAttribute("role", "menuitem");
         }
+        const bounds = root.getBoundingClientRect(), rect = anchor.getBoundingClientRect();
+        menu.style.left = Math.max(8, Math.min((event?.clientX ?? rect.right - 180) - bounds.left, root.clientWidth - 188)) + "px";
+        menu.style.top = Math.max(8, Math.min((event?.clientY ?? rect.bottom + 6) - bounds.top, root.clientHeight - menu.offsetHeight - 8)) + root.scrollTop + "px";
+        menu.onkeydown = (e) => {
+          const buttons = [...menu.querySelectorAll("button")], index = buttons.indexOf(doc.activeElement);
+          if (["ArrowDown", "ArrowUp", "Home", "End"].includes(e.key)) {
+            e.preventDefault();
+            buttons[e.key === "Home" ? 0 : e.key === "End" ? buttons.length - 1 : (index + (e.key === "ArrowDown" ? 1 : -1) + buttons.length) % buttons.length].focus();
+          }
+          if (e.key === "Escape") {
+            e.preventDefault();
+            closeMenu();
+            anchor.focus();
+          }
+        };
+        menu.querySelector("button")?.focus();
+      }
+      const dismissMenu = (e) => {
+        if (menu && !menu.contains(e.target) && !menuAnchor?.contains(e.target)) closeMenu();
       };
+      doc.addEventListener("pointerdown", dismissMenu);
+      root.addEventListener("scroll", closeMenu);
+      function pdfDialog() {
+        const { box, close } = dialog("导入 PDF"), category = categoryPicker(box, bridge, data.folders, folder || "文献");
+        el("p", "pl-muted", "选择已有分类，或填写新分类后导入。支持一次选择多个 PDF。", box);
+        const files = el("input", "pl-input", void 0, box);
+        files.type = "file";
+        files.multiple = true;
+        files.accept = ".pdf,application/pdf";
+        files.setAttribute("aria-label", "选择 PDF 文件");
+        const actions2 = el("div", "pl-modal-actions", void 0, box);
+        button("取消", actions2, close);
+        const submit = button("导入", actions2, async () => {
+          if (!files.files.length) return bridge.notice("请选择 PDF 文件");
+          submit.disabled = true;
+          try {
+            const target = await category.resolve();
+            for (const file of files.files) await bridge.importPdf(file.name, await file.arrayBuffer(), target);
+            close();
+            await refresh();
+          } finally {
+            submit.disabled = false;
+          }
+        }, "pl-primary");
+      }
+      function deleteDialog(paper) {
+        const { box, close } = dialog("删除文献");
+        el("p", "", `将“${paper.title}”移到 Obsidian 废纸篓？关联笔记和批注会保留，恢复 PDF 后可继续使用。`, box);
+        const actions2 = el("div", "pl-modal-actions", void 0, box);
+        button("取消", actions2, close);
+        const submit = button("删除", actions2, async () => {
+          submit.disabled = true;
+          try {
+            await bridge.deletePaper(paper.path);
+            close();
+            await refresh();
+            bridge.notice("文献已移到 Obsidian 废纸篓");
+          } finally {
+            submit.disabled = false;
+          }
+        }, "pl-danger");
+      }
       function optionSelect(label2, options, value, parent, change) {
         const s = el("select", "pl-select", void 0, parent);
         s.setAttribute("aria-label", label2);
@@ -2020,7 +2042,7 @@ var require_home = __commonJS({
       }
       function render() {
         navigation.replaceChildren();
-        for (const [id, name] of [["library", "文献"], ["labels", "Label"], ["folders", "文件夹"], ["board", "阅读"], ["graph", "Graph"]]) button(name, navigation, () => {
+        for (const [id, name] of [["library", "文献"], ["labels", "标签"], ["folders", "文件夹"], ["board", "阅读"], ["graph", "Graph"]]) button(name, navigation, () => {
           tab = id;
           if (id === "library") {
             folder = "";
@@ -2028,7 +2050,7 @@ var require_home = __commonJS({
           }
           render();
         }, tab === id ? "is-active" : "");
-        title.textContent = tab === "library" ? label ? "Label · " + label : folder ? "文件夹 · " + folder.replace(/^文献\/?/, "") : "文献" : tab === "labels" ? "Label" : tab === "folders" ? "文件夹" : tab === "board" ? "阅读记录" : "Graph";
+        title.textContent = tab === "library" ? label ? "标签 · " + label : folder ? "文件夹 · " + folder.replace(/^文献\/?/, "") : "文献" : tab === "labels" ? "标签" : tab === "folders" ? "文件夹" : tab === "board" ? "阅读记录" : "Graph";
         subtitle.textContent = tab === "library" ? `${data.papers.length} 篇文献 · ${data.papers.filter((p) => (p.statusValues || [p.status]).includes("done")).length} 篇已读` : tab === "labels" ? "选择标签，查看对应的文献。" : tab === "folders" ? "按文件夹整理文献。" : tab === "board" ? "实际访问记录与手动阅读状态。" : "文件夹归属与真实笔记链接。";
         content.replaceChildren();
         if (tab === "library") renderLibrary();
@@ -2054,7 +2076,7 @@ var require_home = __commonJS({
             chip.style.color = c && Number(c[0]) * 0.299 + Number(c[1]) * 0.587 + Number(c[2]) * 0.114 < 145 ? "#fff" : "#28382d";
           }
         }
-        if (!counts.size) el("p", "pl-home-empty", "还没有 Label。在阅读器的 Label 栏添加；Zotero 标签也会作为初始 Label 导入。", content);
+        if (!counts.size) el("p", "pl-home-empty", "还没有 标签。在阅读器的 标签 栏添加；", content);
       }
       function renderFolders() {
         const cloud = el("div", "pl-home-label-cloud", void 0, content);
@@ -2070,7 +2092,7 @@ var require_home = __commonJS({
       }
       function renderLibrary() {
         const tools = el("div", "pl-home-tools", void 0, content), search = el("input", "pl-input", void 0, tools);
-        search.placeholder = "搜索标题、作者、Label…";
+        search.placeholder = "搜索标题、作者、标签…";
         search.setAttribute("aria-label", "搜索文献库");
         search.value = query;
         search.oninput = () => {
@@ -2103,10 +2125,22 @@ var require_home = __commonJS({
         const found = data.papers.filter((p) => (!folder || p.folder === folder || p.folder.startsWith(folder + "/")) && (!label || (p.labels || []).includes(label)) && [p.title, p.authors, p.firstAuthor, p.correspondingAuthor, p.folder, ...p.labels || []].filter(Boolean).join(" ").toLowerCase().includes(query.toLowerCase()));
         found.sort((a, b) => sort === "title" ? a.title.localeCompare(b.title) : sort === "year" ? Number(b.year || 0) - Number(a.year || 0) : sort === "rating" ? (a.ratingValues || []).map((id) => data.ratingOptions?.find((o) => o.id === id)?.name || "").join(" ").localeCompare((b.ratingValues || []).map((id) => data.ratingOptions?.find((o) => o.id === id)?.name || "").join(" ")) : sort === "added" ? b.added - a.added : String(b.lastOpened || "").localeCompare(String(a.lastOpened || "")));
         const table = el("table", "pl-paper-table", void 0, list), head = el("thead", "", void 0, table), heading = el("tr", "", void 0, head);
-        for (const name of ["阅读状态", "通讯作者 / 第一单位", "年份", "标题", "期刊 / 会议", "期刊标签", "Rating", "Label"]) el("th", "", name, heading);
+        for (const name of ["阅读状态", "通讯作者 / 第一单位", "年份", "标题", "期刊 / 会议", "Rating", "标签"]) el("th", "", name, heading);
         const rows = el("tbody", "", void 0, table);
         for (const paper of found) {
           const row = el("tr", "pl-home-paper", void 0, rows), markerCell = el("td", "pl-table-marker", void 0, row);
+          row.tabIndex = 0;
+          row.setAttribute("aria-label", paper.title);
+          row.oncontextmenu = (e) => {
+            e.preventDefault();
+            showMenu(row, [["打开", () => bridge.openPaper(paper.path)], ["删除", () => deleteDialog(paper)]], e);
+          };
+          row.onkeydown = (e) => {
+            if (e.key === "ContextMenu" || e.shiftKey && e.key === "F10") {
+              e.preventDefault();
+              showMenu(row, [["打开", () => bridge.openPaper(paper.path)], ["删除", () => deleteDialog(paper)]]);
+            } else if (e.key === "Enter" && e.target === row) bridge.openPaper(paper.path);
+          };
           for (const id of paper.statusValues || [paper.status]) {
             const option = data.statusOptions?.find((o) => o.id === id);
             if (!option) continue;
@@ -2124,30 +2158,6 @@ var require_home = __commonJS({
           open.title = paper.title;
           const venue = el("td", "pl-table-venue", paper.venue || "—", row);
           venue.title = paper.venue || "";
-          const metricCell = el("td", "pl-table-metrics", void 0, row);
-          for (const tag of paper.venueMetrics || []) {
-            const chip = el("a", "pl-venue-tag is-" + tag.type.toLowerCase(), metricLabel(tag), metricCell);
-            chip.href = tag.url;
-            chip.target = "_blank";
-            chip.rel = "noopener noreferrer";
-            chip.title = [tag.category, tag.quote, "来源：" + tag.url].filter(Boolean).join("\n");
-          }
-          if (paper.venue && bridge.searchVenueMetrics) {
-            const lookup = button(paper.venueLookup?.status === "unavailable" ? "暂未查到 · 重试" : paper.venueMetrics?.length ? "↻" : "AI 检索", metricCell, async () => {
-              lookup.disabled = true;
-              lookup.textContent = "检索中…";
-              try {
-                await bridge.searchVenueMetrics(paper.path, true);
-                await refresh();
-              } finally {
-                if (lookup.isConnected) {
-                  lookup.disabled = false;
-                  lookup.textContent = "AI 检索";
-                }
-              }
-            }, "pl-metric-lookup");
-            lookup.setAttribute("aria-label", "检索期刊评级：" + paper.venue);
-          }
           const ratingCell = el("td", "pl-table-rating", void 0, row);
           for (const id of paper.ratingValues || []) {
             const option = data.ratingOptions?.find((o) => o.id === id);
@@ -2261,37 +2271,15 @@ var require_home = __commonJS({
       }
       function dialog(title2) {
         const overlay = el("div", "pl-modal-overlay", void 0, root), box = el("section", "pl-modal", void 0, overlay);
+        overlay.style.top = root.scrollTop + "px";
+        overlay.style.bottom = "auto";
+        overlay.style.height = root.clientHeight + "px";
         box.setAttribute("role", "dialog");
         box.setAttribute("aria-label", title2);
         const header2 = el("div", "pl-modal-heading", void 0, box);
         el("h3", "", title2, header2);
         button("×", header2, () => overlay.remove());
         return { box, close: () => overlay.remove() };
-      }
-      function folderDialog() {
-        const { box, close } = dialog("新建文件夹分类");
-        el("label", "pl-field-label", "分类名称", box);
-        const field = el("input", "pl-input", void 0, box);
-        field.placeholder = "例如：肿瘤／宫颈癌";
-        field.setAttribute("aria-label", "分类名称");
-        const actions2 = el("div", "pl-modal-actions", void 0, box);
-        button("取消", actions2, close);
-        const submit = button("创建分类", actions2, async () => {
-          if (!field.value.trim()) return bridge.notice("请输入分类名称");
-          submit.disabled = true;
-          try {
-            await bridge.createCategory(field.value);
-            close();
-            await refresh();
-          } finally {
-            submit.disabled = false;
-          }
-        }, "pl-primary");
-        field.addEventListener("keydown", (e) => {
-          if (e.key === "Enter") submit.click();
-          if (e.key === "Escape") close();
-        });
-        field.focus();
       }
       async function importSettingsDialog() {
         const settings = bridge.getImportSettings(), { box, close } = dialog("文献导入设置");
@@ -2301,12 +2289,24 @@ var require_home = __commonJS({
         enabled.setAttribute("aria-label", "导入时同时保存到 Zotero");
         el("span", "", "导入时同时保存到 Zotero", label2);
         el("p", "pl-muted", "对之后本地和网页导入的 PDF 生效。先保存到 Obsidian，再向 Zotero 当前选中的可写分类保存一份副本。从 Zotero 导入不会回传。", box);
-        const target = el("p", "pl-muted", "正在检查 Zotero 保存位置…", box);
-        bridge.getZoteroSaveTarget().then((value) => {
-          target.textContent = "当前 Zotero 位置：" + (value.libraryName || "") + " / " + (value.name || "") + (!value.filesEditable || !value.editable ? "（不可写）" : "");
-        }).catch(() => {
-          target.textContent = "Zotero 暂未连接。保存失败时，Obsidian PDF 仍会保留；在此窗口重试。";
-        });
+        const target = el("p", "pl-muted", "正在检查 Zotero 保存位置…", box), guide = el("div", "pl-zotero-guide", void 0, box);
+        el("strong", "", "连接 Zotero", guide);
+        const steps = el("ol", "", void 0, guide);
+        for (const text of ["启动本机 Zotero 桌面版。", "在 Zotero「设置 → 高级 → 其他」启用「允许此计算机上的其他应用程序与 Zotero 通信」。", "保持 Zotero 运行，选择可写的文库或分类，然后点击下方重新检测。"]) el("li", "", text, steps);
+        guide.hidden = true;
+        const check = async () => {
+          try {
+            await bridge.detectConnections();
+            const value = await bridge.getZoteroSaveTarget();
+            target.textContent = "当前 Zotero 位置：" + (value.libraryName || "") + " / " + (value.name || "") + (!value.filesEditable || !value.editable ? "（不可写）" : "");
+            guide.hidden = true;
+          } catch {
+            target.textContent = "Zotero 未连接，请按以下步骤完成连接。";
+            guide.hidden = false;
+          }
+        };
+        button("重新检测 Zotero", guide, check);
+        void check();
         for (const [paper, result] of Object.entries(settings.results).filter(([, r]) => r.status !== "saved")) {
           const item = el("div", "pl-import-retry", void 0, box);
           el("strong", "", paper.split("/").at(-1), item);
@@ -2343,7 +2343,7 @@ var require_home = __commonJS({
         }, "pl-primary");
       }
       async function zoteroDialog() {
-        const { box, close } = dialog("从 Zotero 选择 PDF"), search = el("input", "pl-input", void 0, box), results = el("div", "pl-zotero-results", void 0, box);
+        const { box, close } = dialog("从 Zotero 选择 PDF"), category = categoryPicker(box, bridge, data.folders, folder || "文献"), search = el("input", "pl-input", void 0, box), results = el("div", "pl-zotero-results", void 0, box);
         search.placeholder = "论文标题、作者或关键词";
         search.setAttribute("aria-label", "搜索 Zotero");
         button("搜索", box, async () => {
@@ -2365,7 +2365,8 @@ var require_home = __commonJS({
             button("导入选中的 PDF", results, async () => {
               const selected = choices.filter((c) => c.check.checked);
               if (!selected.length) return bridge.notice("请选择至少一个 PDF");
-              for (const { a } of selected) await bridge.importZotero(item, a.key);
+              const target = await category.resolve();
+              for (const { a } of selected) await bridge.importZotero(item, a.key, target);
               close();
               await refresh();
             }, "pl-primary");
@@ -2377,6 +2378,9 @@ var require_home = __commonJS({
       await refresh();
       return { refresh, destroy() {
         closed = true;
+        closeMenu();
+        doc.removeEventListener("pointerdown", dismissMenu);
+        root.removeEventListener("scroll", closeMenu);
         root.replaceChildren();
       } };
     }
@@ -2528,10 +2532,12 @@ var require_notebook = __commonJS({
       for (const m of source.matchAll(re)) {
         try {
           const stored = annotationMeta(m[1]), meta = { ...records[stored.id], ...stored };
-          const body = m[2].split(/\r?\n<!-- paper-library:body -->\r?\n/)[1] ?? "";
+          const content = stored.layout >= 2 ? m[2].split(/\r?\n/).slice(1).map((line) => line.replace(/^> ?/, "")).join("\n") : m[2];
+          const rawBody = content.split(/\r?\n<!-- paper-library:body -->\r?\n/)[1] ?? "";
+          const body = stored.layout === 3 ? rawBody.replace(/^\n/, "") : rawBody;
           const translated = m[2].match(/<!-- paper-library:translation -->\r?\n([\s\S]*?)\r?\n<!-- paper-library:translation:end -->/);
-          const quote = [...m[2].split(/\r?\n<!-- paper-library:body -->/)[0].matchAll(/(?:^|\r?\n)>[ \t]?(.*)/g)].map((match) => match[1]).join("\n");
-          let title = m[2].match(/^### (.*)$/m)?.[1];
+          const quote = [...content.split(/\r?\n<!-- paper-library:body -->/)[0].matchAll(/(?:^|\r?\n)>[ \t]?(.*)/g)].map((match) => match[1]).filter((line) => !/^\[!paper-(?:yellow|red|green|blue|purple|pink|orange|gray)\]$/.test(line)).join("\n");
+          let title = content.match(/^### (.*)$/m)?.[1];
           if (stored.paper && title?.endsWith(" · P" + meta.page)) {
             title = title.slice(0, -(" · P" + meta.page).length);
             if (!meta.title && ["便笺", "划线批注", "翻译与批注", "AI 摘记", "阅读笔记"].includes(title)) title = void 0;
@@ -2564,7 +2570,7 @@ var require_notebook = __commonJS({
         if (!plugin.app.vault.getAbstractFileByPath(path)) {
           await plugin.app.vault.create(path, group("---\ncssclasses:\n  - paper-library-note\n---\n\n## 阅读札记\n", plugin.settings.annotationRecords || {}));
           plugin.settings.cleanNotePages ||= {};
-          plugin.settings.cleanNotePages[path] = 1;
+          plugin.settings.cleanNotePages[path] = 3;
         }
         plugin.settings.notePages[paper] = path;
         await plugin.saveData(plugin.settings);
@@ -2585,12 +2591,13 @@ var require_notebook = __commonJS({
     function blockFor(note, compact = false) {
       const { body, path, _source, _block, _originalBody, ...meta } = note;
       const title = (note.title || "").replace(/[\r\n]/g, " ");
-      const quote = note.quote ? "\n> " + note.quote.replace(/\n/g, "\n> ") + "\n" : "";
-      const encoded = JSON.stringify(compact ? { id: note.id } : meta).replace(/</g, "\\u003c").replace(/>/g, "\\u003e");
+      const shade = ["yellow", "red", "green", "blue", "purple", "pink", "orange", "gray"].includes(note.color) ? note.color : "yellow";
+      const quote = note.quote ? "> " + note.quote.replace(/\n/g, "\n> ") : "";
+      const encoded = JSON.stringify(compact ? { id: note.id, layout: 3 } : { ...meta, layout: 3 }).replace(/</g, "\\u003c").replace(/>/g, "\\u003e");
+      const content = [title ? "### " + title : "", quote, "", "<!-- paper-library:body -->", "", body || ""].join("\n");
       return `${START}${encoded} -->
-${title ? "### " + title + "\n" : ""}${quote}
-<!-- paper-library:body -->
-${body || ""}
+> [!paper-${shade}] ${note.paper ? "[[" + note.paper + "#page=" + note.page + "|" + note.paper.split("/").pop().replace(/\.pdf$/i, "") + " · p. " + note.page + "]]" : ""}
+${content.split("\n").map((line) => "> " + line).join("\n")}
 <!-- paper-library:end -->`;
     }
     async function save(plugin, note) {
@@ -2804,6 +2811,181 @@ var require_metadata = __commonJS({
   }
 });
 
+// src/models.js
+var require_models = __commonJS({
+  "src/models.js"(exports2, module2) {
+    function endpoint(chatUrl) {
+      const url = new URL(chatUrl);
+      if (url.protocol !== "https:" && !(url.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname))) throw new Error("模型地址必须使用 HTTPS 或本机 HTTP");
+      url.pathname = url.pathname.replace(/\/(?:chat\/completions|responses)\/?$/, "").replace(/\/$/, "") + "/models";
+      url.search = "";
+      url.hash = "";
+      return url.href;
+    }
+    function normalize(data) {
+      if (!Array.isArray(data?.data)) throw new Error("服务商未返回有效的模型列表");
+      return data.data.filter((m) => typeof m.id === "string" && (!m.architecture?.output_modalities || m.architecture.output_modalities.includes("text")) && (!m.output_modalities || m.output_modalities.includes("text"))).map((m) => ({
+        id: m.id,
+        name: m.name || m.id,
+        context: m.context_length || m.context_window || null,
+        maxOutput: m.max_output_tokens || m.top_provider?.max_completion_tokens || null,
+        free: m.pricing ? Number(m.pricing.prompt) === 0 && Number(m.pricing.completion) === 0 : null,
+        efforts: m.effort?.supported_levels || (m.supported_parameters?.includes("reasoning") ? ["low", "medium", "high"] : [])
+      }));
+    }
+    module2.exports = { endpoint, normalize };
+  }
+});
+
+// src/venue-metrics.js
+var require_venue_metrics = __commonJS({
+  "src/venue-metrics.js"(exports2, module2) {
+    var normalize = (s) => String(s || "").toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
+    var evidenceText = (s) => String(s || "").normalize("NFKC").replace(/\*\*|__/g, "").replace(/\s+/g, " ").trim().toLowerCase();
+    var publishers = ["nature.com", "springer.com", "springernature.com", "wiley.com", "sciencedirect.com", "elsevier.com", "sagepub.com", "tandfonline.com", "oup.com", "ieee.org", "acm.org", "clarivate.com", "biomedcentral.com", "plos.org", "frontiersin.org", "mdpi.com", "bmj.com", "jamanetwork.com", "nejm.org", "cell.com", "science.org", "pnas.org", "annualreviews.org"];
+    var catalogPromise;
+    function ccfGrade(text, venue) {
+      const body = normalize(text), name = String(venue).replace(/^proceedings of (?:the )?/i, "").replace(/\bIEEE(?:\/CVF)?\b|\bACM\b/gi, "").trim();
+      const initials = (s) => s.split(/[^a-zA-Z]+/).filter((w) => w && !/^(on|of|the|and|in|for|a|an)$/i.test(w)).map((w) => w[0]).join("").toUpperCase();
+      const candidates = [venue, initials(name), initials(name.replace(/^conference on /i, ""))];
+      const needle = candidates.find((s) => normalize(s).length >= 4 && body.includes(normalize(s)) && (!/^[A-Z]+$/.test(s) || new RegExp("\\b" + s + "\\b").test(text)));
+      if (!needle) return null;
+      const index = body.indexOf(normalize(needle));
+      const headings = [...body.slice(0, index).matchAll(/([abc])类/g)];
+      return headings.at(-1)?.[1]?.toUpperCase() || null;
+    }
+    async function lookupCcf(venue, read) {
+      if (!catalogPromise) catalogPromise = (async () => {
+        const editionUrl = "https://www.ccf.org.cn/Academic_Evaluation/By_category/", intro = await read(editionUrl);
+        const url = intro.match(/https:\/\/www\.ccf\.org\.cn\/ccf\/contentcore\/resource\/download\?ID=[A-Fa-f0-9]+/)?.[0];
+        const years = [...intro.matchAll(/(20\d{2})年/g)].map((m) => Number(m[1])).filter((y) => y <= (/* @__PURE__ */ new Date()).getFullYear());
+        if (!url || !years.length) throw new Error("CCF 官方目录无法读取");
+        return { url, editionUrl, year: Math.max(...years), text: await read(url) };
+      })().catch((e) => {
+        catalogPromise = null;
+        throw e;
+      });
+      const source = await catalogPromise, value = ccfGrade(source.text, venue);
+      if (!value) return null;
+      return { type: "CCF", value, year: source.year, url: source.url, editionUrl: source.editionUrl, category: "", quote: venue + " · " + value + " 类（官方目录表格）", checkedAt: (/* @__PURE__ */ new Date()).toISOString() };
+    }
+    function allowed(type, url) {
+      try {
+        const u = new URL(url);
+        if (u.protocol !== "https:") return false;
+        const hosts = type === "CCF" ? ["ccf.org.cn"] : type === "CAS" ? ["fenqubiao.com"] : publishers;
+        return hosts.some((h) => u.hostname === h || u.hostname.endsWith("." + h));
+      } catch {
+        return false;
+      }
+    }
+    function validValue(type, value) {
+      return type === "IF" ? /^\d+(?:\.\d+)?$/.test(value) : type === "JCR" ? /^Q[1-4]$/.test(value) : type === "CCF" ? /^[ABC]$/.test(value) : type === "CAS" ? /^[1-4]区$/.test(value) : false;
+    }
+    async function verify(venue, items, read) {
+      const tags = [], pages = /* @__PURE__ */ new Map();
+      for (const item of (Array.isArray(items) ? items : []).slice(0, 12)) {
+        const type = String(item.type || "").toUpperCase(), value = String(item.value || ""), year = Number(item.year), quote = String(item.quote || "").trim();
+        if (!validValue(type, value) || !Number.isInteger(year) || year < 1990 || year > (/* @__PURE__ */ new Date()).getFullYear() || !allowed(type, item.url) || quote.length < 8 || quote.length > 240) continue;
+        try {
+          if (!pages.has(item.url)) pages.set(item.url, await read(item.url));
+          const text = pages.get(item.url), body = normalize(text), q = normalize(quote);
+          const escaped = value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+          if (!body.includes(normalize(venue)) || !body.includes(q) || !evidenceText(text).includes(evidenceText(quote)) || !new RegExp("(?<![\\d.])" + escaped + "(?![\\d.])", "i").test(quote) || !new RegExp("\\b" + year + "\\b").test(quote)) continue;
+          if (type === "IF" && (!/journal impact factor/i.test(quote) || /5.year/i.test(quote))) continue;
+          if (type === "JCR" && (!/JCR|Journal Citation Reports/i.test(quote) || /SJR|SCImago/i.test(quote))) continue;
+          if (type === "CCF" && !/CCF|类|category|rank/i.test(quote)) continue;
+          if (type === "CAS" && !/中科院|Chinese Academy of Sciences/i.test(quote)) continue;
+          const tag = { type, value, year, url: item.url, category: String(item.category || "").slice(0, 120), quote, checkedAt: (/* @__PURE__ */ new Date()).toISOString() };
+          if (!tags.some((t) => t.type === type && t.value === value && t.year === year && t.category === tag.category)) tags.push(tag);
+        } catch {
+        }
+      }
+      return tags.filter((t) => !tags.some((o) => o.type === t.type && o.category === t.category && o.year > t.year));
+    }
+    async function lookup(venue, { research, read, chat, search, get, sourceUrls = [] } = {}) {
+      if (typeof venue !== "string" || !venue.trim()) throw new Error("请先补全文献的期刊或会议名称");
+      if (typeof read !== "function") throw new Error("缺少期刊来源网页读取工具");
+      const { parseJson, publicSearch } = require_enrichment();
+      const prompt = `联网检索这个期刊/会议的最新公开评级：${JSON.stringify(venue)}。仅使用期刊出版社官方、Clarivate、ccf.org.cn、fenqubiao.com 的页面，不使用商业期刊聚合站。查 IF(两年 Journal Impact Factor)、JCR 分区、CCF A/B/C；中科院分区仅有官方公开证据才填。不同指标可以属于不同年度，但必须各自注明年度。没有官方证据的指标留空。不要把 SJR Q1 当 JCR Q1。先检索并打开相关官方页面，最多4次搜索和4次打开。只返回 JSON 对象 {"metrics":[{"type":"IF|JCR|CCF|CAS","value":"9.9|Q1|A|1区","year":2025,"category":"学科或空字符串","url":"https://官方原始页面","quote":"页面中包含指标名称、数值和年度的原文短句，至多25个英文词，不要拼接或改写"}]}。期刊名称在来源中必须完全匹配。CCF类别不得因为主题相近而猜测。不得读取本地文件，不得运行命令。`;
+      const cache = /* @__PURE__ */ new Map(), errors = [];
+      const readOnce = async (url) => {
+        if (!cache.has(url)) cache.set(url, Promise.resolve().then(() => read(url)));
+        return cache.get(url);
+      };
+      if (research) {
+        try {
+          const value = parseJson(await research(prompt));
+          if (!Array.isArray(value.metrics)) throw new Error("AI JSON 缺少 metrics 数组");
+          const tags = await verify(venue, value.metrics, readOnce);
+          if (tags.length) return tags;
+        } catch (e) {
+          errors.push(e.message);
+        }
+      }
+      let urls = [...sourceUrls];
+      if (get && !urls.length) try {
+        const works = (await get("https://api.crossref.org/works?rows=2&query.container-title=" + encodeURIComponent(venue))).message?.items || [];
+        const work = works.find((w) => normalize(w["container-title"]?.[0]) === normalize(venue));
+        const article = work?.resource?.primary?.URL;
+        if (article && allowed("IF", article)) {
+          const page = String(await readOnce(article));
+          for (const match of page.matchAll(/\[([^\]]+)\]\((https:\/\/[^\s)]+)\)/g)) {
+            if (normalize(match[1]) === normalize(venue)) {
+              const url = new URL(match[2]);
+              if (url.hostname.endsWith("nature.com") && /^\/[a-z0-9-]+\/?$/i.test(url.pathname)) urls.push(url.href.replace(/\/$/, "") + "/journal-impact");
+              else if (allowed("IF", url.href)) urls.push(url.href);
+            }
+            if (/journal metrics|journal impact|about this journal/i.test(match[1]) && allowed("IF", match[2])) urls.push(match[2]);
+          }
+        }
+      } catch (e) {
+        errors.push(e.message);
+      }
+      if (!urls.length) try {
+        const found = await (search || ((q) => publicSearch(q, readOnce)))('"' + venue + '" official journal impact factor JCR metrics');
+        urls.push(...(Array.isArray(found) ? found : []).map((v) => typeof v === "string" ? v : v.url).filter(Boolean));
+      } catch (e) {
+        errors.push(e.message);
+      }
+      urls = [...new Set(urls)].filter((url) => ["IF", "CCF", "CAS"].some((type) => allowed(type, url))).slice(0, 4);
+      const pages = [];
+      for (const url of urls) {
+        try {
+          const text = String(await readOnce(url));
+          if (normalize(text).includes(normalize(venue))) pages.push({ url, text: text.slice(0, 32e3) });
+        } catch (e) {
+          errors.push(e.message);
+        }
+      }
+      if (!pages.length) {
+        const error = new Error("无法读取匹配期刊的官方来源，未生成评级" + (errors.length ? "：" + errors.join("；") : ""));
+        error.code = "VENUE_EVIDENCE_UNAVAILABLE";
+        throw error;
+      }
+      const items = [];
+      for (const { url, text } of pages) for (const match of text.matchAll(/(?:^|\n)[^\n]{0,30}Journal Impact Factor[^\n]{0,130}/gi)) {
+        const quote = match[0].trim();
+        if (/5.year/i.test(quote)) continue;
+        const metric = quote.match(/Journal Impact Factor\s*[:：]?\s*\*{0,2}(\d+(?:\.\d+)?)\s*\*{0,2}\s*\(?\s*(20\d{2})/i);
+        if (metric) items.push({ type: "IF", value: metric[1], year: Number(metric[2]), url, quote });
+      }
+      const deterministic = await verify(venue, items, readOnce);
+      if (deterministic.length) return deterministic;
+      if (chat) {
+        const answer = parseJson(await chat([{ role: "system", content: prompt + " 本次已由应用联网，以下来源是实际读取的原始证据。仅从这些来源提取，不声称自己检索，不使用记忆补值。" }, { role: "user", content: JSON.stringify(pages) }]));
+        if (!Array.isArray(answer.metrics)) throw new Error("AI JSON 缺少 metrics 数组");
+        items.push(...answer.metrics.filter((i) => pages.some((p) => p.url === i.url)));
+      }
+      return verify(venue, items, readOnce);
+    }
+    function label(tag) {
+      return (tag.type === "CCF" ? "CCF-" + tag.value : tag.type === "CAS" ? "中科院 " + tag.value : tag.type + " " + tag.value) + " · " + tag.year;
+    }
+    module2.exports = { lookup, verify, label, allowed, lookupCcf, ccfGrade };
+  }
+});
+
 // src/enrichment.js
 var require_enrichment = __commonJS({
   "src/enrichment.js"(exports2, module2) {
@@ -3009,181 +3191,6 @@ ${p.text || ""}`).join("\n\n");
   }
 });
 
-// src/venue-metrics.js
-var require_venue_metrics = __commonJS({
-  "src/venue-metrics.js"(exports2, module2) {
-    var normalize = (s) => String(s || "").toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
-    var evidenceText = (s) => String(s || "").normalize("NFKC").replace(/\*\*|__/g, "").replace(/\s+/g, " ").trim().toLowerCase();
-    var publishers = ["nature.com", "springer.com", "springernature.com", "wiley.com", "sciencedirect.com", "elsevier.com", "sagepub.com", "tandfonline.com", "oup.com", "ieee.org", "acm.org", "clarivate.com", "biomedcentral.com", "plos.org", "frontiersin.org", "mdpi.com", "bmj.com", "jamanetwork.com", "nejm.org", "cell.com", "science.org", "pnas.org", "annualreviews.org"];
-    var catalogPromise;
-    function ccfGrade(text, venue) {
-      const body = normalize(text), name = String(venue).replace(/^proceedings of (?:the )?/i, "").replace(/\bIEEE(?:\/CVF)?\b|\bACM\b/gi, "").trim();
-      const initials = (s) => s.split(/[^a-zA-Z]+/).filter((w) => w && !/^(on|of|the|and|in|for|a|an)$/i.test(w)).map((w) => w[0]).join("").toUpperCase();
-      const candidates = [venue, initials(name), initials(name.replace(/^conference on /i, ""))];
-      const needle = candidates.find((s) => normalize(s).length >= 4 && body.includes(normalize(s)) && (!/^[A-Z]+$/.test(s) || new RegExp("\\b" + s + "\\b").test(text)));
-      if (!needle) return null;
-      const index = body.indexOf(normalize(needle));
-      const headings = [...body.slice(0, index).matchAll(/([abc])类/g)];
-      return headings.at(-1)?.[1]?.toUpperCase() || null;
-    }
-    async function lookupCcf(venue, read) {
-      if (!catalogPromise) catalogPromise = (async () => {
-        const editionUrl = "https://www.ccf.org.cn/Academic_Evaluation/By_category/", intro = await read(editionUrl);
-        const url = intro.match(/https:\/\/www\.ccf\.org\.cn\/ccf\/contentcore\/resource\/download\?ID=[A-Fa-f0-9]+/)?.[0];
-        const years = [...intro.matchAll(/(20\d{2})年/g)].map((m) => Number(m[1])).filter((y) => y <= (/* @__PURE__ */ new Date()).getFullYear());
-        if (!url || !years.length) throw new Error("CCF 官方目录无法读取");
-        return { url, editionUrl, year: Math.max(...years), text: await read(url) };
-      })().catch((e) => {
-        catalogPromise = null;
-        throw e;
-      });
-      const source = await catalogPromise, value = ccfGrade(source.text, venue);
-      if (!value) return null;
-      return { type: "CCF", value, year: source.year, url: source.url, editionUrl: source.editionUrl, category: "", quote: venue + " · " + value + " 类（官方目录表格）", checkedAt: (/* @__PURE__ */ new Date()).toISOString() };
-    }
-    function allowed(type, url) {
-      try {
-        const u = new URL(url);
-        if (u.protocol !== "https:") return false;
-        const hosts = type === "CCF" ? ["ccf.org.cn"] : type === "CAS" ? ["fenqubiao.com"] : publishers;
-        return hosts.some((h) => u.hostname === h || u.hostname.endsWith("." + h));
-      } catch {
-        return false;
-      }
-    }
-    function validValue(type, value) {
-      return type === "IF" ? /^\d+(?:\.\d+)?$/.test(value) : type === "JCR" ? /^Q[1-4]$/.test(value) : type === "CCF" ? /^[ABC]$/.test(value) : type === "CAS" ? /^[1-4]区$/.test(value) : false;
-    }
-    async function verify(venue, items, read) {
-      const tags = [], pages = /* @__PURE__ */ new Map();
-      for (const item of (Array.isArray(items) ? items : []).slice(0, 12)) {
-        const type = String(item.type || "").toUpperCase(), value = String(item.value || ""), year = Number(item.year), quote = String(item.quote || "").trim();
-        if (!validValue(type, value) || !Number.isInteger(year) || year < 1990 || year > (/* @__PURE__ */ new Date()).getFullYear() || !allowed(type, item.url) || quote.length < 8 || quote.length > 240) continue;
-        try {
-          if (!pages.has(item.url)) pages.set(item.url, await read(item.url));
-          const text = pages.get(item.url), body = normalize(text), q = normalize(quote);
-          const escaped = value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-          if (!body.includes(normalize(venue)) || !body.includes(q) || !evidenceText(text).includes(evidenceText(quote)) || !new RegExp("(?<![\\d.])" + escaped + "(?![\\d.])", "i").test(quote) || !new RegExp("\\b" + year + "\\b").test(quote)) continue;
-          if (type === "IF" && (!/journal impact factor/i.test(quote) || /5.year/i.test(quote))) continue;
-          if (type === "JCR" && (!/JCR|Journal Citation Reports/i.test(quote) || /SJR|SCImago/i.test(quote))) continue;
-          if (type === "CCF" && !/CCF|类|category|rank/i.test(quote)) continue;
-          if (type === "CAS" && !/中科院|Chinese Academy of Sciences/i.test(quote)) continue;
-          const tag = { type, value, year, url: item.url, category: String(item.category || "").slice(0, 120), quote, checkedAt: (/* @__PURE__ */ new Date()).toISOString() };
-          if (!tags.some((t) => t.type === type && t.value === value && t.year === year && t.category === tag.category)) tags.push(tag);
-        } catch {
-        }
-      }
-      return tags.filter((t) => !tags.some((o) => o.type === t.type && o.category === t.category && o.year > t.year));
-    }
-    async function lookup(venue, { research, read, chat, search, get, sourceUrls = [] } = {}) {
-      if (typeof venue !== "string" || !venue.trim()) throw new Error("请先补全文献的期刊或会议名称");
-      if (typeof read !== "function") throw new Error("缺少期刊来源网页读取工具");
-      const { parseJson, publicSearch } = require_enrichment();
-      const prompt = `联网检索这个期刊/会议的最新公开评级：${JSON.stringify(venue)}。仅使用期刊出版社官方、Clarivate、ccf.org.cn、fenqubiao.com 的页面，不使用商业期刊聚合站。查 IF(两年 Journal Impact Factor)、JCR 分区、CCF A/B/C；中科院分区仅有官方公开证据才填。不同指标可以属于不同年度，但必须各自注明年度。没有官方证据的指标留空。不要把 SJR Q1 当 JCR Q1。先检索并打开相关官方页面，最多4次搜索和4次打开。只返回 JSON 对象 {"metrics":[{"type":"IF|JCR|CCF|CAS","value":"9.9|Q1|A|1区","year":2025,"category":"学科或空字符串","url":"https://官方原始页面","quote":"页面中包含指标名称、数值和年度的原文短句，至多25个英文词，不要拼接或改写"}]}。期刊名称在来源中必须完全匹配。CCF类别不得因为主题相近而猜测。不得读取本地文件，不得运行命令。`;
-      const cache = /* @__PURE__ */ new Map(), errors = [];
-      const readOnce = async (url) => {
-        if (!cache.has(url)) cache.set(url, Promise.resolve().then(() => read(url)));
-        return cache.get(url);
-      };
-      if (research) {
-        try {
-          const value = parseJson(await research(prompt));
-          if (!Array.isArray(value.metrics)) throw new Error("AI JSON 缺少 metrics 数组");
-          const tags = await verify(venue, value.metrics, readOnce);
-          if (tags.length) return tags;
-        } catch (e) {
-          errors.push(e.message);
-        }
-      }
-      let urls = [...sourceUrls];
-      if (get && !urls.length) try {
-        const works = (await get("https://api.crossref.org/works?rows=2&query.container-title=" + encodeURIComponent(venue))).message?.items || [];
-        const work = works.find((w) => normalize(w["container-title"]?.[0]) === normalize(venue));
-        const article = work?.resource?.primary?.URL;
-        if (article && allowed("IF", article)) {
-          const page = String(await readOnce(article));
-          for (const match of page.matchAll(/\[([^\]]+)\]\((https:\/\/[^\s)]+)\)/g)) {
-            if (normalize(match[1]) === normalize(venue)) {
-              const url = new URL(match[2]);
-              if (url.hostname.endsWith("nature.com") && /^\/[a-z0-9-]+\/?$/i.test(url.pathname)) urls.push(url.href.replace(/\/$/, "") + "/journal-impact");
-              else if (allowed("IF", url.href)) urls.push(url.href);
-            }
-            if (/journal metrics|journal impact|about this journal/i.test(match[1]) && allowed("IF", match[2])) urls.push(match[2]);
-          }
-        }
-      } catch (e) {
-        errors.push(e.message);
-      }
-      if (!urls.length) try {
-        const found = await (search || ((q) => publicSearch(q, readOnce)))('"' + venue + '" official journal impact factor JCR metrics');
-        urls.push(...(Array.isArray(found) ? found : []).map((v) => typeof v === "string" ? v : v.url).filter(Boolean));
-      } catch (e) {
-        errors.push(e.message);
-      }
-      urls = [...new Set(urls)].filter((url) => ["IF", "CCF", "CAS"].some((type) => allowed(type, url))).slice(0, 4);
-      const pages = [];
-      for (const url of urls) {
-        try {
-          const text = String(await readOnce(url));
-          if (normalize(text).includes(normalize(venue))) pages.push({ url, text: text.slice(0, 32e3) });
-        } catch (e) {
-          errors.push(e.message);
-        }
-      }
-      if (!pages.length) {
-        const error = new Error("无法读取匹配期刊的官方来源，未生成评级" + (errors.length ? "：" + errors.join("；") : ""));
-        error.code = "VENUE_EVIDENCE_UNAVAILABLE";
-        throw error;
-      }
-      const items = [];
-      for (const { url, text } of pages) for (const match of text.matchAll(/(?:^|\n)[^\n]{0,30}Journal Impact Factor[^\n]{0,130}/gi)) {
-        const quote = match[0].trim();
-        if (/5.year/i.test(quote)) continue;
-        const metric = quote.match(/Journal Impact Factor\s*[:：]?\s*\*{0,2}(\d+(?:\.\d+)?)\s*\*{0,2}\s*\(?\s*(20\d{2})/i);
-        if (metric) items.push({ type: "IF", value: metric[1], year: Number(metric[2]), url, quote });
-      }
-      const deterministic = await verify(venue, items, readOnce);
-      if (deterministic.length) return deterministic;
-      if (chat) {
-        const answer = parseJson(await chat([{ role: "system", content: prompt + " 本次已由应用联网，以下来源是实际读取的原始证据。仅从这些来源提取，不声称自己检索，不使用记忆补值。" }, { role: "user", content: JSON.stringify(pages) }]));
-        if (!Array.isArray(answer.metrics)) throw new Error("AI JSON 缺少 metrics 数组");
-        items.push(...answer.metrics.filter((i) => pages.some((p) => p.url === i.url)));
-      }
-      return verify(venue, items, readOnce);
-    }
-    function label(tag) {
-      return (tag.type === "CCF" ? "CCF-" + tag.value : tag.type === "CAS" ? "中科院 " + tag.value : tag.type + " " + tag.value) + " · " + tag.year;
-    }
-    module2.exports = { lookup, verify, label, allowed, lookupCcf, ccfGrade };
-  }
-});
-
-// src/models.js
-var require_models = __commonJS({
-  "src/models.js"(exports2, module2) {
-    function endpoint(chatUrl) {
-      const url = new URL(chatUrl);
-      if (url.protocol !== "https:" && !(url.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname))) throw new Error("模型地址必须使用 HTTPS 或本机 HTTP");
-      url.pathname = url.pathname.replace(/\/(?:chat\/completions|responses)\/?$/, "").replace(/\/$/, "") + "/models";
-      url.search = "";
-      url.hash = "";
-      return url.href;
-    }
-    function normalize(data) {
-      if (!Array.isArray(data?.data)) throw new Error("服务商未返回有效的模型列表");
-      return data.data.filter((m) => typeof m.id === "string" && (!m.architecture?.output_modalities || m.architecture.output_modalities.includes("text")) && (!m.output_modalities || m.output_modalities.includes("text"))).map((m) => ({
-        id: m.id,
-        name: m.name || m.id,
-        context: m.context_length || m.context_window || null,
-        maxOutput: m.max_output_tokens || m.top_provider?.max_completion_tokens || null,
-        free: m.pricing ? Number(m.pricing.prompt) === 0 && Number(m.pricing.completion) === 0 : null,
-        efforts: m.effort?.supported_levels || (m.supported_parameters?.includes("reasoning") ? ["low", "medium", "high"] : [])
-      }));
-    }
-    module2.exports = { endpoint, normalize };
-  }
-});
-
 // src/completion.js
 var require_completion = __commonJS({
   "src/completion.js"(exports2, module2) {
@@ -3335,7 +3342,7 @@ var require_note_markers = __commonJS({
       const ranges = [];
       let fence = null;
       for (let n = 1; n <= doc.lines; n++) {
-        const line = doc.line(n), text = line.text.trim();
+        const line = doc.line(n), text = line.text.trim().replace(/^> ?/, "");
         const match = text.match(/^(`{3,}|~{3,})/);
         if (match) {
           if (!fence) fence = match[1];
@@ -3368,9 +3375,7 @@ var Core = require_core();
 var Notebook = require_notebook();
 var Codex = require_codex();
 var Metadata = require_metadata();
-var VenueMetrics = require_venue_metrics();
 var WebImport = require_web_import();
-var Appearance = require_appearance();
 var Models = require_models();
 var Enrichment = require_enrichment();
 var Completion = require_completion();
@@ -3404,7 +3409,6 @@ var PaperView = class extends ItemView {
   async initializeReader() {
     this.contentEl.empty();
     this.contentEl.addClass("paper-library-host");
-    Appearance.apply(this.contentEl, this.plugin.settings.appearance, (path) => this.app.vault.adapter.getResourcePath(path));
     try {
       this.reader = await createReader(this.contentEl, this.plugin.bridge(this), await loadPdfJs(), Core);
       if (this.pendingPath) await this.reader.openPaper(this.pendingPath);
@@ -3444,7 +3448,6 @@ var HomeView = class extends ItemView {
       this.contentEl.empty();
       this.contentEl.addClass("paper-library-host");
       this.home = await createHome(this.contentEl, this.plugin.bridge(this));
-      Appearance.apply(this.contentEl, this.plugin.settings.appearance, (path) => this.app.vault.adapter.getResourcePath(path));
     })();
     await this.homeReady;
   }
@@ -3460,7 +3463,6 @@ module.exports = class PaperLibrary extends Plugin {
     this.renameJobs = /* @__PURE__ */ new Map();
     this.authorJobs = /* @__PURE__ */ new Map();
     this.authorQueue = Promise.resolve();
-    this.venueJobs = /* @__PURE__ */ new Map();
     this.metadataJobs = /* @__PURE__ */ new Map();
     this.metadataQueue = Promise.resolve();
     this.settings.models ||= {};
@@ -3541,7 +3543,22 @@ module.exports = class PaperLibrary extends Plugin {
     this.settings.annotationRecords ||= {};
     this.settings.cleanNotePages ||= {};
     for (const [paper, path] of Object.entries(this.settings.notePages || {})) {
-      if (this.settings.cleanNotePages[path] === 1) continue;
+      if (this.settings.cleanNotePages[path] === 3) continue;
+      if (this.settings.cleanNotePages[path] >= 1) {
+        const file2 = this.app.vault.getAbstractFileByPath(path);
+        if (!file2) continue;
+        const original2 = await this.app.vault.read(file2), updated = Notebook.group(original2, this.settings.annotationRecords);
+        const directory2 = this.manifest.dir + "/note-format-backups";
+        if (!await this.app.vault.adapter.exists(directory2)) await this.app.vault.adapter.mkdir(directory2);
+        await this.app.vault.adapter.write(directory2 + "/" + crypto.randomUUID() + ".md", original2);
+        await this.app.vault.process(file2, (current) => {
+          if (current !== original2) throw Error("笔记正在编辑，请重载后重试格式更新");
+          return updated;
+        });
+        this.settings.cleanNotePages[path] = 3;
+        await this.saveData(this.settings);
+        continue;
+      }
       const file = this.app.vault.getAbstractFileByPath(path);
       if (!file || file.extension !== "md") continue;
       const original = await this.app.vault.read(file), directory = this.manifest.dir + "/note-format-backups";
@@ -3574,7 +3591,7 @@ module.exports = class PaperLibrary extends Plugin {
         fm.cssclasses = [.../* @__PURE__ */ new Set([...classes, "paper-library-note"])];
       });
       await this.app.vault.process(file, (source) => Notebook.group(NoteFormat.cleanProse(source, paper), this.settings.annotationRecords));
-      this.settings.cleanNotePages[path] = 1;
+      this.settings.cleanNotePages[path] = 3;
       await this.saveData(this.settings);
     }
   }
@@ -3613,10 +3630,7 @@ module.exports = class PaperLibrary extends Plugin {
     this.homeFilePath = path;
     await this.ensureFolder("文献");
     await this.ensureFolder(NOTES);
-    if (!this.app.vault.getAbstractFileByPath(path)) await this.app.vault.create(path, "---\npaper-library-home: true\n---\n\n# 文献首页\n\n[打开文献管理首页](obsidian://paper-library?vault=" + encodeURIComponent(this.app.vault.getName()) + "&action=home)\n\n管理文献、Label、阅读状态与文章笔记。\n");
-  }
-  applyAppearance(value) {
-    for (const type of [HOME, VIEW]) for (const leaf of this.app.workspace.getLeavesOfType(type)) Appearance.apply(leaf.view.contentEl, value, (path) => this.app.vault.adapter.getResourcePath(path));
+    if (!this.app.vault.getAbstractFileByPath(path)) await this.app.vault.create(path, "---\npaper-library-home: true\n---\n\n# 文献首页\n\n[打开文献管理首页](obsidian://paper-library?vault=" + encodeURIComponent(this.app.vault.getName()) + "&action=home)\n\n管理文献、标签、阅读状态与文章笔记。\n");
   }
   linkedOpenCodexProvider(provider) {
     if (!this.settings.openCodexLinkedProviders?.includes(provider)) return null;
@@ -3886,9 +3900,9 @@ module.exports = class PaperLibrary extends Plugin {
     }
     const papers = this.app.vault.getFiles().filter((f) => f.extension.toLowerCase() === "pdf").map((file) => {
       const metadata = this.settings.metadata?.[file.path] || {}, fm = frontmatters.get(file.path) || {};
-      const labelSource = fm.labels ?? this.settings.paperLabels?.[file.path] ?? metadata.tags ?? fm.tags ?? [];
+      const labelSource = fm.labels ?? this.settings.paperLabels?.[file.path] ?? [];
       const labels = [...new Set((Array.isArray(labelSource) ? labelSource : String(labelSource).split(/[,，;；]/)).map((t) => String(t).trim().replace(/^#/, "")).filter(Boolean))];
-      return { path: file.path, folder: file.parent?.path || "", ...metadata, venueMetrics: this.settings.venueMetrics?.[metadata.venue || fm.venue]?.tags || [], venueLookup: this.settings.venueMetrics?.[metadata.venue || fm.venue], title: fm.title || metadata.title || file.basename, authors: fm.authors || metadata.authors || metadata.firstAuthor || fm["first-author"] || "", year: fm.year || metadata.year || "", venue: fm.venue || metadata.venue || "", ratingValues: fm["rating-options"] || this.settings.paperRatingValues?.[file.path] || [], statusValues: fm["reading-status-options"] || this.settings.paperStatusValues?.[file.path] || [this.settings.reading?.[file.path]?.status || "unread"], properties: fm["custom-properties"] || this.settings.paperProperties?.[file.path] || {}, labels, rating: this.settings.paperRatings?.[file.path] || 0, size: file.stat.size, added: file.stat.ctime, status: "unread", ...this.settings.reading?.[file.path], annotationCount: counts.get(file.path) || 0 };
+      return { path: file.path, folder: file.parent?.path || "", ...metadata, title: fm.title || metadata.title || file.basename, authors: fm.authors || metadata.authors || metadata.firstAuthor || fm["first-author"] || "", year: fm.year || metadata.year || "", venue: fm.venue || metadata.venue || "", ratingValues: fm["rating-options"] || this.settings.paperRatingValues?.[file.path] || [], statusValues: fm["reading-status-options"] || this.settings.paperStatusValues?.[file.path] || [this.settings.reading?.[file.path]?.status || "unread"], properties: fm["custom-properties"] || this.settings.paperProperties?.[file.path] || {}, labels, rating: this.settings.paperRatings?.[file.path] || 0, size: file.stat.size, added: file.stat.ctime, status: "unread", ...this.settings.reading?.[file.path], annotationCount: counts.get(file.path) || 0 };
     });
     const folders = [.../* @__PURE__ */ new Set(["文献", ...this.app.vault.getAllLoadedFiles().filter((f) => f.children && (f.path === "文献" || f.path.startsWith("文献/"))).map((f) => f.path), ...papers.map((p) => p.folder)])].sort();
     const notesToPapers = new Map(Object.entries(this.settings.notePages || {}).map(([paper, note]) => [note, paper])), links = [];
@@ -3903,9 +3917,6 @@ module.exports = class PaperLibrary extends Plugin {
     for (const paper of papers) if ((!paper.year || !paper.venue) && Date.now() - Date.parse(paper.lookupAt || "1970-01-01") > 864e5) this.queueMetadata(paper.path);
     if (this.bridge({}).getSettings().hasKey) {
       for (const paper of papers) if (!paper.correspondingAffiliationZh && Date.now() - Date.parse(paper.authorLookupAt || "1970-01-01") > 864e5) this.queueAuthors(paper.path);
-    }
-    if (this.settings.codexReady) {
-      for (const paper of papers) if (paper.venue && (!this.settings.venueMetrics?.[paper.venue] || Date.now() - Date.parse(this.settings.venueMetrics[paper.venue].checkedAt) > 7 * 864e5) && !this.venueJobs.has(paper.venue)) this.searchVenueMetrics(paper.path).catch((e) => console.warn("[Paper Library venue]", e.message));
     }
     return { papers, folders, activity: this.settings.activity || {}, links, labelColors: this.settings.labelColors || {}, statusOptions: this.statusOptions(), ratingOptions: this.settings.ratingOptions || [], customProperties: this.settings.customProperties || [] };
   }
@@ -4021,42 +4032,6 @@ module.exports = class PaperLibrary extends Plugin {
       }
     }
     return direct.text.replace(/<[^>]+>/g, " ").slice(0, 4e5);
-  }
-  async searchVenueMetrics(paper, force = false) {
-    const metadata = this.settings.metadata?.[paper] || {}, venue = metadata.venue;
-    if (!venue) throw new Error("请先补全文献的期刊或会议名称");
-    const cache = this.settings.venueMetrics?.[venue];
-    if (!force && cache?.status === "verified" && cache.tags?.length && Date.now() - Date.parse(cache.checkedAt) < 7 * 864e5) return cache;
-    if (this.venueJobs.has(venue)) return this.venueJobs.get(venue);
-    const task = (async () => {
-      const bridge = this.bridge({}), settings = bridge.getSettings(), model = this.settings.models.codex || "gpt-6.1-sol";
-      const tags = await VenueMetrics.lookup(venue, { research: settings.provider === "codex" && this.settings.codexReady ? (prompt) => Codex.research({ ...settings, model, reasoning: "low" }, prompt) : void 0, chat: settings.hasKey ? (messages) => bridge.chat(settings, messages) : void 0, get: async (url) => {
-        const r = await requestUrl({ url, throw: false });
-        if (r.status !== 200) throw Error("公开书目检索失败（" + r.status + "）");
-        return r.json;
-      }, read: (url) => this.readMetricSource(url), search: (query) => Enrichment.publicSearch(query, async (url) => {
-        const r = await requestUrl({ url, throw: false });
-        if (r.status !== 200) throw Error("公开检索失败（" + r.status + "）");
-        return r.text;
-      }) });
-      const result = { tags, checkedAt: (/* @__PURE__ */ new Date()).toISOString(), status: tags.length ? "verified" : "unavailable" };
-      this.settings.venueMetrics ||= {};
-      this.settings.venueMetrics[venue] = result;
-      await this.saveData(this.settings);
-      for (const leaf of this.app.workspace.getLeavesOfType(HOME)) leaf.view.home?.refresh().catch(console.error);
-      return result;
-    })();
-    this.venueJobs.set(venue, task);
-    try {
-      return await task;
-    } catch (e) {
-      this.settings.venueMetrics ||= {};
-      this.settings.venueMetrics[venue] = { ...cache || {}, checkedAt: (/* @__PURE__ */ new Date()).toISOString(), status: "error", error: e.message };
-      await this.saveData(this.settings);
-      throw e;
-    } finally {
-      this.venueJobs.delete(venue);
-    }
   }
   statusOptions() {
     return this.settings.statusOptions || [{ id: "unread", name: "未读", color: "#f1e2e0" }, { id: "reading", name: "阅读中", color: "#f6e8c4" }, { id: "done", name: "已读", color: "#dfeede" }];
@@ -4262,26 +4237,6 @@ module.exports = class PaperLibrary extends Plugin {
       inspectWeb: (input) => this.inspectWeb(input),
       importWeb: (preview, url, folder) => this.importWeb(preview, url, folder),
       webBookmarklet: () => WebImport.bookmarklet(this.app.vault.getName()),
-      getAppearance: () => Appearance.normalize(this.settings.appearance),
-      previewAppearance: (value) => this.applyAppearance(value),
-      saveAppearance: async (value) => {
-        this.settings.appearance = Appearance.normalize(value);
-        await this.saveData(this.settings);
-        this.applyAppearance(this.settings.appearance);
-      },
-      saveBackground: async (name, bytes) => {
-        if (bytes.byteLength > 20 * 1024 * 1024) throw new Error("背景图片请小于20 MB");
-        const b = new Uint8Array(bytes), type = b[0] === 137 && b[1] === 80 && b[2] === 78 ? "png" : b[0] === 255 && b[1] === 216 ? "jpg" : new TextDecoder().decode(b.slice(8, 12)) === "WEBP" ? "webp" : null;
-        if (!type) throw new Error("请选择 PNG、JPEG 或 WebP 图片");
-        const folder = this.manifest.dir + "/backgrounds";
-        if (!await this.app.vault.adapter.exists(folder)) await this.app.vault.adapter.mkdir(folder);
-        const path = folder + "/" + crypto.randomUUID() + "." + type;
-        await this.app.vault.adapter.writeBinary(path, bytes);
-        return path;
-      },
-      removeBackground: async (path) => {
-        if (path.startsWith(this.manifest.dir + "/backgrounds/") && /^[a-f0-9-]+[.](png|jpg|webp)$/.test(path.slice((this.manifest.dir + "/backgrounds/").length)) && await this.app.vault.adapter.exists(path)) await this.app.vault.adapter.remove(path);
-      },
       getIntegrations: () => this.settings.integrations || {},
       detectConnections: () => this.detectConnections(),
       getImportSettings: () => ({ alsoSaveToZotero: Boolean(this.settings.alsoSaveToZotero), results: this.settings.zoteroExportResults || {} }),
@@ -4301,6 +4256,11 @@ module.exports = class PaperLibrary extends Plugin {
       recordReading: (paper, page, total) => this.recordReading(paper, page, total),
       libraryData: () => this.libraryData(),
       savePaperDetails: (paper, details) => this.savePaperDetails(paper, details),
+      deletePaper: async (path) => {
+        const file = this.app.vault.getAbstractFileByPath(path);
+        if (!(file instanceof TFile) || file.extension.toLowerCase() !== "pdf") throw new Error("文献不存在。");
+        await this.app.vault.trash(file, false);
+      },
       createCategory: async (value) => {
         const path = this.categoryPath(value);
         await this.ensureFolder(path);
@@ -4334,7 +4294,6 @@ module.exports = class PaperLibrary extends Plugin {
         if (typeof sideHidden === "boolean") this.settings.readerSideHidden = sideHidden;
         await this.saveData(this.settings);
       },
-      searchVenueMetrics: (paper, force) => this.searchVenueMetrics(paper, force),
       getMetadata: (paper) => this.settings.metadata?.[paper],
       enrichMetadata: (paper, source, force) => this.enrichMetadata(paper, source, force),
       extractAuthors: (paper, source) => this.extractAuthors(paper, source),
@@ -4396,6 +4355,8 @@ module.exports = class PaperLibrary extends Plugin {
         for (const leaf of this.app.workspace.getLeavesOfType(HOME)) leaf.view.home?.refresh().catch(console.error);
       },
       connectCodex: () => this.connectCodex(),
+      annotationIcon: (style) => this.app.vault.adapter.getResourcePath(this.manifest.dir + "/assets/" + (style === "underline" ? "underline" : "highlight") + "-icon.png"),
+      sceneryUrl: () => this.app.vault.adapter.getResourcePath(this.manifest.dir + "/assets/meadow-wallpaper.png"),
       brandUrl: () => this.app.vault.adapter.getResourcePath(this.manifest.dir + (require("node:fs").existsSync(join(this.app.vault.adapter.getBasePath(), this.manifest.dir, "reading-frog.png")) ? "/reading-frog.png" : "/assets/reading-frog.png")),
       paperMenu: (event, paper) => {
         const { Menu } = require("obsidian");
@@ -4407,7 +4368,7 @@ module.exports = class PaperLibrary extends Plugin {
       searchZotero: (query) => this.zotero("items/top?limit=50&q=" + encodeURIComponent(query)),
       linkZotero: (paper, item) => this.linkZotero(paper, item),
       listZoteroPdfs: async (item) => item.data.itemType === "attachment" && item.data.contentType === "application/pdf" ? [item] : (await this.zotero(`items/${item.key}/children`, false, item._scope || "users/0")).filter((c) => c.data.contentType === "application/pdf" && c.data.linkMode !== "linked_url"),
-      importZotero: async (item, attachmentKey) => {
+      importZotero: async (item, attachmentKey, folder = "文献") => {
         this.settings.zoteroPapers ||= {};
         const children = await this.bridge(view).listZoteroPdfs(item);
         const attachment = attachmentKey ? children.find((c) => c.key === attachmentKey) : children.length === 1 ? children[0] : null;
@@ -4423,7 +4384,7 @@ module.exports = class PaperLibrary extends Plugin {
         const bytes = readFileSync(require("node:url").fileURLToPath(url));
         const hash = require("node:crypto").createHash("sha256").update(bytes).digest("hex"), known = this.settings.zoteroExports?.[hash]?.paper, knownFile = known && this.app.vault.getAbstractFileByPath(known);
         const sameFile = knownFile && knownFile.extension === "pdf" && require("node:crypto").createHash("sha256").update(Buffer.from(await this.app.vault.readBinary(knownFile))).digest("hex") === hash;
-        const paper = sameFile ? known : await this.bridge(view).importPdf(item.data.title + (children.length > 1 ? " · " + (attachment.data.title || attachment.data.filename || attachment.key) : "") + ".pdf", bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength), "文献", { fromZotero: true });
+        const paper = sameFile ? known : await this.bridge(view).importPdf(item.data.title + (children.length > 1 ? " · " + (attachment.data.title || attachment.data.filename || attachment.key) : "") + ".pdf", bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength), folder, { fromZotero: true });
         this.settings.metadata ||= {};
         this.settings.metadata[paper] = { title: item.data.title, authors: (item.data.creators || []).filter((c) => c.creatorType === "author").map((c) => [c.firstName, c.lastName].filter(Boolean).join(" ") || c.name).join(", "), year: item.data.date?.match(/\b(?:19|20)\d{2}\b/)?.[0] || "", venue: item.data.publicationTitle || item.data.conferenceName || item.data.proceedingsTitle || "", tags: (item.data.tags || []).map((t) => t.tag).filter(Boolean), firstAuthor: item.data.creators?.[0] ? [item.data.creators[0].firstName, item.data.creators[0].lastName].filter(Boolean).join(" ") || item.data.creators[0].name : null };
         this.settings.zoteroPapers[identity] = paper;

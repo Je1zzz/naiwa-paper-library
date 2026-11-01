@@ -20,7 +20,7 @@ function Get-Sha256([string]$Path) {
     try { return [BitConverter]::ToString($hasher.ComputeHash($stream)).Replace('-', '').ToLowerInvariant() }
     finally { $stream.Dispose(); $hasher.Dispose() }
 }
-$names = @('main.js', 'manifest.json', 'styles.css', 'assets/reading-icon.svg', 'assets/reading-frog.png')
+$names = @('main.js', 'manifest.json', 'styles.css', 'assets/reading-icon.svg', 'assets/reading-frog.png', 'assets/highlight-icon.png', 'assets/underline-icon.png', 'assets/meadow-wallpaper.png')
 $manifestPath = Join-Path $package 'plugin/manifest.json'
 Assert-NoLinks $manifestPath
 $manifest = [IO.File]::ReadAllText($manifestPath) | ConvertFrom-Json

@@ -5,3 +5,5 @@
 `plugin/assets/reading-frog.png` 是用户提供并要求用于本项目 README 的奶蛙图片。本仓库不对该图片另行授予开放许可。
 
 插件代码及 Zotero 附件的整体许可证由相应权利人发布前确定。仓库维护者应审核来源、署名及第三方许可；本工具不会替权利人授予许可证。
+
+`plugin/assets/meadow-wallpaper.png` 为 2026-11-01 根据用户要求使用内置 imagegen 生成的田园插画，包含奶蛙、牛、马、猫、狗、羊、兔子、鸟和草甸植物，用作文献首页背景。生成说明见 `WALLPAPER-PROMPT.md`。

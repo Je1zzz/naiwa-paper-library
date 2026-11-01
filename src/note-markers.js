@@ -2,7 +2,7 @@
 function markerRanges(doc) {
   const ranges=[];let fence=null;
   for(let n=1;n<=doc.lines;n++){
-    const line=doc.line(n),text=line.text.trim();
+    const line=doc.line(n),text=line.text.trim().replace(/^> ?/,'');
     const match=text.match(/^(`{3,}|~{3,})/);
     if(match){if(!fence)fence=match[1];else if(match[1][0]===fence[0]&&match[1].length>=fence.length)fence=null;continue;}
     if(fence)continue;
